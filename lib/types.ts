@@ -27,6 +27,15 @@ export type EngineStatus = {
   gemini: { configured: boolean; model: string };
 };
 
+export type Segment = {
+  /** Seconds from the start of the recording. */
+  start: number;
+  end: number;
+  text: string;
+  /** Language Whisper transcribed this segment in, e.g. "en" or "tr". */
+  language?: string;
+};
+
 export type Lecture = {
   id: string;
   createdAt: number;
@@ -39,4 +48,8 @@ export type Lecture = {
   sttEngine: string;
   notesEngine: NotesEngine | null;
   durationSec?: number;
+  /** Timestamped transcript; `transcript` is always the plain-text join of these. */
+  segments?: Segment[];
+  /** Original audio is stored on this device (IndexedDB) under the lecture id. */
+  hasAudio?: boolean;
 };

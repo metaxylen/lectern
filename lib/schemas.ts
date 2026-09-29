@@ -9,6 +9,13 @@ export const NotesSchema = z.object({
   glossary: z.array(z.object({ term: z.string(), turkish: z.string() })).optional(),
 });
 
+export const SegmentSchema = z.object({
+  start: z.number(),
+  end: z.number(),
+  text: z.string(),
+  language: z.string().optional(),
+});
+
 export const LectureSchema = z.object({
   id: z.string().min(1),
   createdAt: z.number(),
@@ -21,6 +28,8 @@ export const LectureSchema = z.object({
   sttEngine: z.string(),
   notesEngine: z.enum(["ollama", "gemini", "offline"]).nullable(),
   durationSec: z.number().optional(),
+  segments: z.array(SegmentSchema).optional(),
+  hasAudio: z.boolean().optional(),
 });
 
 /** Keep every well-formed lecture from untrusted storage and drop the rest. */
