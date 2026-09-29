@@ -33,7 +33,22 @@ async function build(model: string, device: "webgpu" | "wasm"): Promise<Asr> {
   return (await pipeline("automatic-speech-recognition", model, options as any)) as unknown as Asr;
 }
 
-async function load(model: string, preferred: "webgpu" | "wasm") {
+/** `navigator.gpu` can exist without a usable GPU (headless, blocklisted drivers, VMs). */
+async function webGpuUsable(): Promise<boolean> {
+  try {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
+    return !!(await gpu?.requestAdapter());
+  } catch {
+    return false;
+  }
+}
+
+async function load(model: string, requested: "webgpu" | "wasm") {
+  let preferred = requested;
+  if (requested === "webgpu" && !(await webGpuUsable())) {
+    preferred = "wasm";
+    post({ type: "notice", message: "No usable GPU found, running on the CPU (WASM)." });
+  }
   try {
     asr = await build(model, preferred);
     post({ type: "ready", device: preferred });

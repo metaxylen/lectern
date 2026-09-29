@@ -2,25 +2,53 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+import { useAudioPlayer } from "@/hooks/use-audio-player";
+import { useRecorder, type RecordedChunk } from "@/hooks/use-recorder";
+import { useSpeechPreview } from "@/hooks/use-speech-preview";
 import {
   MODEL_WITHOUT_WEBGPU,
   MODEL_WITH_WEBGPU,
   hasWebGpu,
   useWhisper,
 } from "@/hooks/use-whisper";
-import { useRecorder } from "@/hooks/use-recorder";
-import { useSpeechPreview } from "@/hooks/use-speech-preview";
-import { DEFAULT_NOTES_LANGUAGE, DEFAULT_SPEECH_LANGUAGE } from "@/lib/languages";
+import {
+  createSession,
+  deleteSession,
+  estimateStorage,
+  getChunks,
+  getSession,
+  listUnfinishedSessions,
+  patchChunk,
+  putChunk,
+  requestPersistentStorage,
+  updateSession,
+  type AudioChunk,
+  type AudioSession,
+} from "@/lib/audio-store";
+import {
+  DEFAULT_NOTES_LANGUAGE,
+  DEFAULT_SPEECH_LANGUAGE,
+  parseNotesLanguage,
+} from "@/lib/languages";
 import { newLecture } from "@/lib/lecture";
 import { lectureToMarkdown, slugify } from "@/lib/markdown";
 import { reportError } from "@/lib/monitoring";
 import { requestNotes } from "@/lib/notes-client";
+import { joinSegments, sortSegments } from "@/lib/segments";
 import { deleteLecture, saveLecture, useLectures } from "@/lib/storage";
-import { decodeToMono16k, isMostlySilent, splitAudio } from "@/lib/stt/audio";
-import type { EngineStatus, Lecture, NotesEngineChoice, NotesResult } from "@/lib/types";
-import { parseNotesLanguage } from "@/lib/languages";
+import { decodeToMono16k } from "@/lib/stt/audio";
+import { shortModelName } from "@/lib/stt/models";
+import { CancelledError, transcribeSamples } from "@/lib/stt/pipeline";
+import type { EngineStatus, Lecture, NotesEngineChoice, NotesResult, Segment } from "@/lib/types";
 
 export type NotesMeta = Pick<NotesResult, "engine" | "model" | "fallbackReasons">;
+
+/** What is stored on this device for the open lecture. */
+export type AudioInfo = { bytes: number; chunks: number; incomplete: number };
+
+/** Recordings idle for this long are considered abandoned (not live in another tab). */
+const ABANDONED_AFTER_MS = 30_000;
+const LOW_STORAGE_BYTES = 200 * 1024 * 1024;
 
 const STORAGE_FULL_MESSAGE =
   "Could not save to this browser (storage is full or blocked). Download the Markdown to keep a copy.";
@@ -29,9 +57,16 @@ function persist(lecture: Lecture) {
   if (!saveLecture(lecture)) toast.error(STORAGE_FULL_MESSAGE);
 }
 
+type ChunkInput = Pick<AudioChunk, "index" | "blob" | "mimeType" | "durationSec" | "status"> & {
+  segments?: Segment[];
+};
+
 /**
  * Owns the whole record → transcribe → notes flow and all of its state, so the UI components
  * stay presentational. Refs mirror state that async callbacks need to read without going stale.
+ *
+ * Audio is written to IndexedDB as it is captured (see lib/audio-store.ts). Persistence is always
+ * best effort: if IndexedDB is unavailable the flow still works, just without crash recovery.
  */
 export function useLectureSession() {
   const lectures = useLectures();
@@ -57,18 +92,29 @@ export function useLectureSession() {
   const [generating, setGenerating] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [unfinished, setUnfinished] = useState<AudioSession[]>([]);
+  const [audioInfo, setAudioInfo] = useState<AudioInfo | null>(null);
+  const [persistenceOk, setPersistenceOk] = useState(true);
 
   const whisper = useWhisper(modelId);
   const preview = useSpeechPreview();
 
-  const segmentsRef = useRef<string[]>([]);
+  const whisperRef = useRef(whisper);
+  const segmentsRef = useRef<Segment[]>([]);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentRef = useRef<Lecture | null>(null);
-  const failedChunks = useRef(0);
-  const settings = useRef({ audioLang, notesLang, engineChoice });
+  const cancelRef = useRef(false);
+  const failedRef = useRef(0);
+  const persistOkRef = useRef(true);
+  const hasSessionRef = useRef(false);
+  /** Timeline position (seconds) where the next live chunk begins. */
+  const liveCursorRef = useRef({ t: 0 });
+  const settings = useRef({ audioLang, notesLang, engineChoice, modelId });
 
   useEffect(() => {
-    settings.current = { audioLang, notesLang, engineChoice };
+    settings.current = { audioLang, notesLang, engineChoice, modelId };
+    whisperRef.current = whisper;
   });
 
   useEffect(() => {
@@ -80,7 +126,63 @@ export function useLectureSession() {
     return () => controller.abort();
   }, []);
 
-  // --- helpers ------------------------------------------------------------------------------
+  // --- persistence helpers ------------------------------------------------------------------
+  const markPersistenceFailed = useCallback((err: unknown) => {
+    if (!persistOkRef.current) return;
+    persistOkRef.current = false;
+    setPersistenceOk(false);
+    reportError(err, { source: "audio-store" });
+  }, []);
+
+  /** Serialize IndexedDB writes so a late partial can never overwrite a newer chunk. */
+  const write = useCallback(
+    (op: () => Promise<unknown>) => {
+      writeQueueRef.current = writeQueueRef.current
+        .then(async () => {
+          await op();
+        })
+        .catch(markPersistenceFailed);
+      return writeQueueRef.current;
+    },
+    [markPersistenceFailed],
+  );
+
+  const refreshAudioInfo = useCallback(async (lecture: Lecture | null) => {
+    if (!lecture?.hasAudio) {
+      setAudioInfo(null);
+      return;
+    }
+    try {
+      const chunks = await getChunks(lecture.id);
+      setAudioInfo({
+        bytes: chunks.reduce((n, c) => n + c.blob.size, 0),
+        chunks: chunks.length,
+        incomplete: chunks.filter((c) => c.status === "pending" || c.status === "failed").length,
+      });
+    } catch {
+      setAudioInfo(null);
+    }
+  }, []);
+
+  const refreshUnfinished = useCallback(async () => {
+    try {
+      setUnfinished(await listUnfinishedSessions(ABANDONED_AFTER_MS));
+    } catch {
+      setUnfinished([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listUnfinishedSessions(ABANDONED_AFTER_MS)
+      .then((list) => !cancelled && setUnfinished(list))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // --- lecture state helpers ----------------------------------------------------------------
   const setLecture = useCallback((lecture: Lecture | null) => {
     currentRef.current = lecture;
     setCurrent(lecture);
@@ -94,25 +196,79 @@ export function useLectureSession() {
     [setLecture],
   );
 
+  const setSegments = useCallback(
+    (segments: Segment[]) => {
+      segmentsRef.current = sortSegments(segments);
+      patchCurrent({
+        segments: segmentsRef.current,
+        transcript: joinSegments(segmentsRef.current),
+      });
+    },
+    [patchCurrent],
+  );
+
+  const addSegments = useCallback(
+    (added: Segment[]) => {
+      if (added.length) setSegments([...segmentsRef.current, ...added]);
+    },
+    [setSegments],
+  );
+
   const enqueue = useCallback((job: () => Promise<void>) => {
     setPending((p) => p + 1);
     queueRef.current = queueRef.current
       .then(job)
       .catch((err) => {
-        failedChunks.current += 1;
+        if (err instanceof CancelledError) return;
         reportError(err, { source: "transcription" });
         toast.error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
       })
       .finally(() => setPending((p) => p - 1));
   }, []);
 
-  const pushSegment = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
-      segmentsRef.current = [...segmentsRef.current, text.trim()];
-      patchCurrent({ transcript: segmentsRef.current.join(" ") });
+  // --- transcription ------------------------------------------------------------------------
+  /**
+   * Transcribe one chunk. Chunks already done are skipped but still advance the timeline, so
+   * resuming a half-finished session keeps every timestamp correct. Jobs run one at a time.
+   */
+  const processChunk = useCallback(
+    async (lectureId: string, chunk: ChunkInput, cursor: { t: number }) => {
+      if (chunk.status === "done" || chunk.status === "silent") {
+        cursor.t += chunk.durationSec;
+        return;
+      }
+      if (cancelRef.current) throw new CancelledError();
+      await writeQueueRef.current; // the chunk must be stored before we patch it
+      try {
+        const samples = await decodeToMono16k(chunk.blob);
+        const result = await transcribeSamples(samples, {
+          startSec: cursor.t,
+          language: settings.current.audioLang,
+          transcribe: (audio, language) => whisperRef.current.transcribe(audio, language),
+          shouldCancel: () => cancelRef.current,
+          onProgress: (done, total) => total > 1 && setPartsProgress({ done, total }),
+        });
+        cursor.t += result.durationSec;
+        addSegments(result.segments);
+        void write(() =>
+          patchChunk(lectureId, chunk.index, {
+            status: result.silent ? "silent" : "done",
+            segments: result.segments,
+            durationSec: result.durationSec,
+            error: undefined,
+          }),
+        );
+      } catch (err) {
+        if (err instanceof CancelledError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        cursor.t += chunk.durationSec;
+        failedRef.current += 1;
+        void write(() => patchChunk(lectureId, chunk.index, { status: "failed", error: message }));
+        reportError(err, { source: "transcription", chunk: chunk.index });
+        toast.error(`Could not transcribe part ${chunk.index + 1}: ${message}`);
+      }
     },
-    [patchCurrent],
+    [addSegments, write],
   );
 
   // --- notes --------------------------------------------------------------------------------
@@ -151,110 +307,355 @@ export function useLectureSession() {
     [setLecture],
   );
 
+  /** Wait for transcription to drain, then save the lecture and (unless cancelled) write notes. */
   const finalize = useCallback(
-    async (usePreviewText?: string) => {
+    async (opts: { previewText?: string; keepNotes?: boolean } = {}) => {
       setFinalizing(true);
       try {
         await queueRef.current;
+        await writeQueueRef.current;
+        const cancelled = cancelRef.current;
+        cancelRef.current = false;
         let lecture = currentRef.current;
         if (!lecture) return;
-        let transcript = segmentsRef.current.join(" ").trim();
-        if (!transcript && usePreviewText?.trim()) {
-          transcript = usePreviewText.trim();
-          segmentsRef.current = [transcript];
-          lecture = { ...lecture, sttEngine: "Web Speech API (fallback)" };
+
+        let segments = segmentsRef.current;
+        let sttEngine = lecture.sttEngine;
+        if (!segments.length && opts.previewText?.trim()) {
+          segments = [
+            {
+              start: 0,
+              end: liveCursorRef.current.t,
+              text: opts.previewText.trim(),
+              language: "en",
+            },
+          ];
+          sttEngine = "Web Speech API (fallback)";
           setNotice(
             "Whisper could not transcribe this recording, so the browser's Web Speech preview text was used instead.",
           );
         }
-        if (!transcript) {
-          setNotice("No speech was detected. Check the microphone and try again.");
+        if (!segments.length) {
+          // Audio exists but could not be transcribed (model failed, cancelled): never throw it away.
+          const keepAudio =
+            hasSessionRef.current && persistOkRef.current && (failedRef.current > 0 || cancelled);
+          if (keepAudio) {
+            lecture = { ...lecture, segments: [], transcript: "", hasAudio: true };
+            setLecture(lecture);
+            persist(lecture);
+            void write(() =>
+              updateSession(lecture!.id, { status: "complete", title: lecture!.title }),
+            );
+            void refreshAudioInfo(lecture);
+            setNotice(
+              cancelled
+                ? 'Transcription was cancelled. Your audio is saved: use "Retry" to transcribe it.'
+                : 'The audio is saved, but it could not be transcribed. Use "Retry" to try again.',
+            );
+          } else {
+            setNotice("No speech was detected. Check the microphone and try again.");
+            if (hasSessionRef.current) void write(() => deleteSession(lecture!.id));
+            hasSessionRef.current = false;
+          }
           return;
         }
-        lecture = { ...lecture, transcript };
+
+        const hasAudio = hasSessionRef.current && persistOkRef.current;
+        lecture = {
+          ...lecture,
+          segments,
+          transcript: joinSegments(segments),
+          sttEngine,
+          hasAudio,
+          durationSec: segments[segments.length - 1]?.end ?? lecture.durationSec,
+        };
+        segmentsRef.current = segments;
         setLecture(lecture);
         persist(lecture);
-        await generateNotes(lecture);
+        if (hasSessionRef.current) {
+          void write(() =>
+            updateSession(lecture!.id, { status: "complete", title: lecture!.title }),
+          );
+        }
+        void refreshAudioInfo(lecture);
+
+        if (failedRef.current > 0) {
+          setNotice(
+            `${failedRef.current} part${failedRef.current > 1 ? "s" : ""} could not be transcribed. The audio is saved: use "Retry" to try again.`,
+          );
+        } else if (cancelled) {
+          setNotice("Transcription was cancelled. You can resume it from the transcript panel.");
+        }
+        if (!cancelled && !opts.keepNotes) await generateNotes(lecture);
       } finally {
         setFinalizing(false);
         setPartsProgress(null);
       }
     },
-    [generateNotes, setLecture],
+    [generateNotes, refreshAudioInfo, setLecture, write],
   );
 
-  // --- recording / upload -------------------------------------------------------------------
-  const onChunk = useCallback(
-    (blob: Blob) => {
-      enqueue(async () => {
-        const samples = await decodeToMono16k(blob);
-        if (isMostlySilent(samples)) return;
-        const lang = settings.current.audioLang;
-        pushSegment(await whisper.transcribe(samples, lang === "auto" ? undefined : lang));
+  // --- starting a session -------------------------------------------------------------------
+  const beginSession = useCallback(
+    async (source: "mic" | "file", fileName?: string) => {
+      segmentsRef.current = [];
+      failedRef.current = 0;
+      cancelRef.current = false;
+      liveCursorRef.current = { t: 0 };
+      persistOkRef.current = true;
+      setPersistenceOk(true);
+      setNotice(null);
+      setNotesMeta(null);
+      setAudioInfo(null);
+      const s = settings.current;
+      const lecture = newLecture(
+        s.audioLang,
+        s.notesLang,
+        `Whisper ${shortModelName(s.modelId)} (local)`,
+        fileName ? { title: fileName.replace(/\.[^.]+$/, "") } : {},
+      );
+      setLecture(lecture);
+
+      hasSessionRef.current = false;
+      await write(async () => {
+        await createSession({
+          id: lecture.id,
+          createdAt: lecture.createdAt,
+          source,
+          title: lecture.title,
+          fileName,
+          audioLanguage: s.audioLang,
+          notesLanguage: s.notesLang,
+          sttEngine: lecture.sttEngine,
+        });
+        hasSessionRef.current = true;
+      });
+      if (!hasSessionRef.current) {
+        setNotice(
+          "This browser cannot store audio locally, so this recording will not survive a crash or reload.",
+        );
+      } else {
+        void requestPersistentStorage();
+        void estimateStorage().then((e) => {
+          if (e && e.quota - e.usage < LOW_STORAGE_BYTES) {
+            toast.warning("Your device is low on storage; a long recording may not fit.");
+          }
+        });
+      }
+      return lecture;
+    },
+    [setLecture, write],
+  );
+
+  // --- live recording -----------------------------------------------------------------------
+  const onPartial = useCallback(
+    (chunk: RecordedChunk) => {
+      const lecture = currentRef.current;
+      if (!lecture || !hasSessionRef.current) return;
+      void write(async () => {
+        await putChunk({
+          sessionId: lecture.id,
+          index: chunk.index,
+          blob: chunk.blob,
+          mimeType: chunk.mimeType,
+          complete: false,
+          durationSec: chunk.durationSec,
+          status: "pending",
+        });
+        await updateSession(lecture.id, {}); // heartbeat: tells other tabs this one is alive
       });
     },
-    [enqueue, pushSegment, whisper],
+    [write],
   );
 
-  const recorder = useRecorder(onChunk);
+  const onChunk = useCallback(
+    (chunk: RecordedChunk) => {
+      const lecture = currentRef.current;
+      if (!lecture) return;
+      const record: ChunkInput = { ...chunk, status: "pending" };
+      if (hasSessionRef.current) {
+        void write(() => putChunk({ sessionId: lecture.id, complete: true, ...record }));
+      }
+      enqueue(() => processChunk(lecture.id, record, liveCursorRef.current));
+    },
+    [enqueue, processChunk, write],
+  );
 
-  const resetSession = useCallback(() => {
-    segmentsRef.current = [];
-    failedChunks.current = 0;
-    setNotice(null);
-    setNotesMeta(null);
-    setLecture(
-      newLecture(
-        settings.current.audioLang,
-        settings.current.notesLang,
-        `Whisper ${modelId.split("/").pop()} (local)`,
-      ),
-    );
-  }, [modelId, setLecture]);
+  const stopRecordingRef = useRef<(previewText?: string) => Promise<void>>(async () => {});
+  const recorder = useRecorder({
+    onChunk,
+    onPartial,
+    onEnded: () => {
+      const previewText = (preview.finalText + " " + preview.interim).trim();
+      preview.stop();
+      void stopRecordingRef.current(previewText);
+    },
+  });
 
   const startRecording = useCallback(async () => {
-    resetSession();
+    await beginSession("mic");
     whisper.load();
     const ok = await recorder.start();
-    if (!ok) return;
+    if (!ok) {
+      if (hasSessionRef.current && currentRef.current)
+        void write(() => deleteSession(currentRef.current!.id));
+      hasSessionRef.current = false;
+      return;
+    }
     preview.start(settings.current.audioLang === "auto" ? "en" : settings.current.audioLang);
-  }, [preview, recorder, resetSession, whisper]);
+  }, [beginSession, preview, recorder, whisper, write]);
 
-  const stopRecording = useCallback(async () => {
-    preview.stop();
-    const previewText = (preview.finalText + " " + preview.interim).trim();
-    await recorder.stop();
-    await finalize(previewText);
-  }, [finalize, preview, recorder]);
+  const stopRecording = useCallback(
+    async (previewTextOverride?: string) => {
+      const previewText = previewTextOverride ?? (preview.finalText + " " + preview.interim).trim();
+      preview.stop();
+      await recorder.stop();
+      await finalize({ previewText });
+    },
+    [finalize, preview, recorder],
+  );
 
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+  });
+
+  // --- upload -------------------------------------------------------------------------------
   const uploadFile = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
-      resetSession();
-      whisper.load();
       setFinalizing(true);
-      enqueue(async () => {
-        let samples: Float32Array;
-        try {
-          samples = await decodeToMono16k(file);
-        } catch {
-          throw new Error("Could not decode this audio file. Try mp3, wav, m4a, ogg or webm.");
-        }
-        const parts = splitAudio(samples);
-        setPartsProgress({ done: 0, total: parts.length });
-        const lang = settings.current.audioLang;
-        for (let i = 0; i < parts.length; i++) {
-          if (!isMostlySilent(parts[i])) {
-            pushSegment(await whisper.transcribe(parts[i], lang === "auto" ? undefined : lang));
-          }
-          setPartsProgress({ done: i + 1, total: parts.length });
-        }
-      });
-      patchCurrent({ title: file.name.replace(/\.[^.]+$/, "") });
+      const lecture = await beginSession("file", file.name);
+      whisper.load();
+      const record: ChunkInput = {
+        index: 0,
+        blob: file,
+        mimeType: file.type || "audio/*",
+        durationSec: 0,
+        status: "pending",
+      };
+      if (hasSessionRef.current) {
+        void write(() => putChunk({ sessionId: lecture.id, complete: true, ...record }));
+      }
+      enqueue(() => processChunk(lecture.id, record, liveCursorRef.current));
       await finalize();
     },
-    [enqueue, finalize, patchCurrent, pushSegment, resetSession, whisper],
+    [beginSession, enqueue, finalize, processChunk, whisper, write],
   );
+
+  // --- resume / retry / re-transcribe / recovery ---------------------------------------------
+  /** Run every unfinished chunk of a stored session, then rebuild the transcript from storage. */
+  const resumeStored = useCallback(
+    async (lectureId: string, opts: { keepNotes?: boolean } = {}) => {
+      setFinalizing(true);
+      cancelRef.current = false;
+      failedRef.current = 0;
+      try {
+        const chunks = await getChunks(lectureId);
+        // Only start the (large) model download if some audio actually still needs transcribing.
+        if (chunks.some((c) => c.status === "pending" || c.status === "failed")) whisper.load();
+        const cursor = { t: 0 };
+        for (const chunk of chunks) {
+          enqueue(() => processChunk(lectureId, chunk, cursor));
+        }
+        await queueRef.current;
+        // Storage is the source of truth: rebuild so retried chunks slot into place.
+        const fresh = await getChunks(lectureId);
+        setSegments(fresh.flatMap((c) => c.segments ?? []));
+      } catch (err) {
+        reportError(err, { source: "resume" });
+        toast.error("Could not read the stored audio.");
+        setFinalizing(false);
+        return;
+      }
+      await finalize({ keepNotes: opts.keepNotes ?? true });
+    },
+    [enqueue, finalize, processChunk, setSegments, whisper],
+  );
+
+  const retryFailed = useCallback(async () => {
+    const lecture = currentRef.current;
+    if (!lecture?.hasAudio) return;
+    hasSessionRef.current = true;
+    segmentsRef.current = lecture.segments ?? [];
+    setNotice(null);
+    await resumeStored(lecture.id);
+    toast("Retry finished. Regenerate notes to include the new text.");
+  }, [resumeStored]);
+
+  const retranscribe = useCallback(async () => {
+    const lecture = currentRef.current;
+    if (!lecture?.hasAudio) return;
+    hasSessionRef.current = true;
+    try {
+      const chunks = await getChunks(lecture.id);
+      await Promise.all(
+        chunks.map((c) =>
+          patchChunk(lecture.id, c.index, { status: "pending", segments: [], error: undefined }),
+        ),
+      );
+    } catch {
+      toast.error("Could not read the stored audio.");
+      return;
+    }
+    setNotice(null);
+    setNotesMeta(null);
+    patchCurrent({
+      sttEngine: `Whisper ${shortModelName(settings.current.modelId)} (local)`,
+      audioLanguage: settings.current.audioLang,
+    });
+    setSegments([]);
+    await resumeStored(lecture.id);
+    toast("Transcript replaced. Regenerate notes to use the new text.");
+  }, [patchCurrent, resumeStored, setSegments]);
+
+  const cancel = useCallback(() => {
+    cancelRef.current = true;
+    whisper.cancel();
+  }, [whisper]);
+
+  const recoverSession = useCallback(
+    async (sessionId: string) => {
+      let session: AudioSession | undefined;
+      try {
+        session = await getSession(sessionId);
+      } catch {
+        session = undefined;
+      }
+      if (!session) {
+        toast.error("That recording is no longer available.");
+        void refreshUnfinished();
+        return;
+      }
+      segmentsRef.current = [];
+      liveCursorRef.current = { t: 0 };
+      hasSessionRef.current = true;
+      persistOkRef.current = true;
+      setPersistenceOk(true);
+      setNotice(null);
+      setNotesMeta(null);
+      setLecture(
+        newLecture(session.audioLanguage, session.notesLanguage, session.sttEngine, {
+          id: session.id,
+          createdAt: session.createdAt,
+          title: `Recovered: ${session.title}`,
+          hasAudio: true,
+        }),
+      );
+      setUnfinished((list) => list.filter((s) => s.id !== sessionId));
+      await resumeStored(sessionId, { keepNotes: false });
+    },
+    [refreshUnfinished, resumeStored, setLecture],
+  );
+
+  const discardUnfinished = useCallback(async (sessionId: string) => {
+    try {
+      await deleteSession(sessionId);
+    } catch (err) {
+      reportError(err, { source: "discard" });
+    }
+    setUnfinished((list) => list.filter((s) => s.id !== sessionId));
+    toast("Unfinished recording deleted");
+  }, []);
 
   // --- history ------------------------------------------------------------------------------
   const busy = pending > 0 || finalizing || generating;
@@ -262,26 +663,46 @@ export function useLectureSession() {
   const selectLecture = useCallback(
     (l: Lecture) => {
       if (recorder.recording || busy) return;
-      segmentsRef.current = l.transcript ? [l.transcript] : [];
+      segmentsRef.current = l.segments ?? [];
       setLecture(l);
       setNotesMeta(l.notesEngine ? { engine: l.notesEngine, fallbackReasons: [] } : null);
       setNotice(null);
+      void refreshAudioInfo(l);
     },
-    [busy, recorder.recording, setLecture],
+    [busy, recorder.recording, refreshAudioInfo, setLecture],
   );
 
   const removeLecture = useCallback(
     (l: Lecture) => {
       deleteLecture(l.id);
+      if (l.hasAudio) void deleteSession(l.id).catch(() => {});
       if (currentRef.current?.id === l.id) {
         setLecture(null);
         segmentsRef.current = [];
         setNotesMeta(null);
+        setAudioInfo(null);
       }
       toast("Lecture deleted");
     },
     [setLecture],
   );
+
+  const deleteAudio = useCallback(async () => {
+    const lecture = currentRef.current;
+    if (!lecture) return;
+    try {
+      await deleteSession(lecture.id);
+    } catch (err) {
+      reportError(err, { source: "delete-audio" });
+      toast.error("Could not delete the audio.");
+      return;
+    }
+    const updated = { ...lecture, hasAudio: false };
+    setLecture(updated);
+    persist(updated);
+    setAudioInfo(null);
+    toast("Audio deleted. The transcript and notes are kept.");
+  }, [setLecture]);
 
   // --- export -------------------------------------------------------------------------------
   const markdown = useMemo(() => (current ? lectureToMarkdown(current) : ""), [current]);
@@ -304,6 +725,21 @@ export function useLectureSession() {
     URL.revokeObjectURL(url);
   }, [current?.title, markdown]);
 
+  // --- leave-page guard ---------------------------------------------------------------------
+  const working = recorder.recording || busy;
+  useEffect(() => {
+    if (!working) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [working]);
+
+  // --- playback -----------------------------------------------------------------------------
+  const player = useAudioPlayer(current?.id ?? null, !!current?.hasAudio && !working);
+
   return {
     // data
     lectures,
@@ -312,6 +748,9 @@ export function useLectureSession() {
     engines,
     notice,
     markdown,
+    unfinished,
+    audioInfo,
+    persistenceOk,
     // settings
     audioLang,
     setAudioLang,
@@ -330,15 +769,22 @@ export function useLectureSession() {
     whisper,
     preview,
     recorder,
+    player,
     // actions
     startRecording,
-    stopRecording,
+    stopRecording: () => stopRecording(),
     uploadFile,
     generateNotes,
     selectLecture,
     removeLecture,
     copyMarkdown,
     downloadMarkdown,
+    cancel,
+    retryFailed,
+    retranscribe,
+    recoverSession,
+    discardUnfinished,
+    deleteAudio,
   };
 }
 

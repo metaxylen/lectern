@@ -149,9 +149,15 @@ export async function listSessions(): Promise<AudioSession[]> {
   return all.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** Sessions that were never finished cleanly and still hold audio. */
-export async function listUnfinishedSessions(): Promise<AudioSession[]> {
-  const unfinished = (await listSessions()).filter((s) => s.status === "recording");
+/**
+ * Sessions that were never finished cleanly and still hold audio. `minIdleMs` skips sessions that
+ * were written to recently, i.e. a recording still in progress in another tab.
+ */
+export async function listUnfinishedSessions(minIdleMs = 0): Promise<AudioSession[]> {
+  const now = Date.now();
+  const unfinished = (await listSessions()).filter(
+    (s) => s.status === "recording" && now - s.updatedAt >= minIdleMs,
+  );
   const withAudio: AudioSession[] = [];
   for (const s of unfinished) {
     if ((await countChunks(s.id)) > 0) withAudio.push(s);

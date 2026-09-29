@@ -74,6 +74,25 @@ The header shows which engines are available right now, and each set of notes is
 Copy `.env.example` to `.env.local` and set what you need: `OLLAMA_HOST`, `OLLAMA_MODEL`, `GEMINI_API_KEY`,
 `GEMINI_MODEL`, `NEXT_PUBLIC_CHUNK_SECONDS`.
 
+## Reliability (audio is never lost)
+
+- **Crash-safe recording.** While you record, audio is written to IndexedDB every ~2 seconds (`lib/audio-store.ts`).
+  If the tab closes, the browser crashes or the battery dies, the next visit offers **Recover** for the
+  interrupted recording; it is transcribed and turned into notes like a normal lecture. A recording that is
+  still being written by another tab is not offered for recovery.
+- **Audio is kept with the lecture.** Recordings and uploads stay on this device so you can play them back.
+  Click a timestamp in the transcript to jump to that moment. **Delete audio** removes it but keeps the
+  transcript and notes. Nothing leaves your device.
+- **Nothing is lost when transcription fails.** Each part of a recording remembers whether it was
+  transcribed. If the model fails to load or a part errors, the audio stays saved and **Retry** transcribes
+  only what is missing. **Re-transcribe** redoes a lecture with the current model and language.
+- **Model downloads** can be cancelled or retried, and the **On this device** panel shows downloaded Whisper
+  models and browser storage, with a button to remove a model.
+- While recording the screen is kept awake (where supported), a lost microphone ends the recording cleanly
+  and keeps what was captured, and leaving the page mid-work asks for confirmation.
+- If IndexedDB is unavailable (some private modes) the app still works, but recordings cannot survive a crash;
+  it tells you so.
+
 ## Project layout
 
 - `components/lecture-app.tsx` — thin composition of the panels in `components/lecture/`
@@ -86,7 +105,10 @@ Copy `.env.example` to `.env.local` and set what you need: `OLLAMA_HOST`, `OLLAM
 - `lib/server/env.ts` — validated server environment; `lib/server/rate-limit.ts` — in-memory limiter
 - `lib/extractive.ts` — offline summarizer (also used in the browser if the server is unreachable)
 - `lib/notes-client.ts` — browser side of `/api/notes` with offline fallback
-- `lib/storage.ts`, `lib/schemas.ts` — past lectures in `localStorage`, validated on read
+- `lib/storage.ts`, `lib/schemas.ts` — lecture metadata, transcript and notes in `localStorage`, validated on read
+- `lib/audio-store.ts` — audio sessions/chunks and per-chunk transcription state in IndexedDB
+- `lib/stt/pipeline.ts`, `lib/segments.ts` — cancellable, timestamped transcription; segment helpers
+- `hooks/use-audio-player.ts`, `lib/stt/model-cache.ts` — playback across chunks; downloaded-model management
 - `lib/monitoring.ts`, `instrumentation.ts`, `app/error.tsx`, `app/global-error.tsx` — error reporting and boundaries
 
 ## Development
@@ -102,7 +124,8 @@ Requires Node 22 (`.nvmrc`).
 | `npm run test:e2e`                | Browser tests (Playwright); builds and serves the app on port 47232 |
 | `npm run format`                  | Prettier (with Tailwind class sorting)                              |
 
-First e2e run: `npx playwright install chromium`. E2E tests never download Whisper models; they seed
+First e2e run: `npx playwright install chromium`. Recording tests use Chromium's fake microphone.
+An opt-in test runs the real tiny Whisper model on synthesized speech (macOS): `E2E_WHISPER=1 npm run test:e2e -- e2e/whisper.spec.ts`. E2E tests never download Whisper models; they seed
 `localStorage` and use the offline engine, so they are fast and deterministic.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, lint, format check, coverage and build, then the e2e suite.
@@ -123,4 +146,6 @@ CI (`.github/workflows/ci.yml`) runs typecheck, lint, format check, coverage and
 - First Whisper run needs internet once (model download); after that it works offline, apart from the Web Speech preview.
 - Whisper `small` on CPU/WASM is slower than real time on weak machines; use WebGPU (Chrome/Edge) or pick `base`.
 - Auto-detect chooses between English and Turkish only; for a lecture in another language pick it explicitly.
-- Lectures are stored per browser profile; clearing site data removes them (download the Markdown to keep a copy).
+- Lectures and audio are stored per browser profile; clearing site data removes them (download the Markdown to keep a copy). Cloud sync is planned.
+- Recording is cut into ~20 s standalone files, so a few milliseconds of audio can be lost at each cut. Very long uploads are decoded in memory at once (about 460 MB per hour of audio).
+- Timestamps have ~20 s granularity (one segment per chunk).

@@ -4,23 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type WhisperStatus = "idle" | "loading" | "ready" | "error";
 
-export const WHISPER_MODELS = [
-  { id: "onnx-community/whisper-tiny", label: "Tiny (~40 MB, fastest, weakest)" },
-  { id: "onnx-community/whisper-base", label: "Base (~80 MB, default without WebGPU)" },
-  {
-    id: "onnx-community/whisper-small",
-    label: "Small (~250 MB, default with WebGPU, best accuracy)",
-  },
-] as const;
-
-export const MODEL_WITH_WEBGPU = "onnx-community/whisper-small";
-export const MODEL_WITHOUT_WEBGPU = "onnx-community/whisper-base";
+export { MODEL_WITHOUT_WEBGPU, MODEL_WITH_WEBGPU, WHISPER_MODELS } from "@/lib/stt/models";
 
 export function hasWebGpu(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
-type Pending = { resolve: (t: string) => void; reject: (e: Error) => void };
+export type WhisperResult = { text: string; language?: string };
+
+type Pending = { resolve: (r: WhisperResult) => void; reject: (e: Error) => void };
 
 export function useWhisper(modelId: string) {
   const [status, setStatus] = useState<WhisperStatus>("idle");
@@ -81,7 +73,7 @@ export function useWhisper(modelId: string) {
       } else if (m.type === "notice") {
         setNotice(m.message);
       } else if (m.type === "result") {
-        pending.current.get(m.id)?.resolve(m.text);
+        pending.current.get(m.id)?.resolve({ text: m.text, language: m.language });
         pending.current.delete(m.id);
       } else if (m.type === "error") {
         if (m.id !== undefined) {
@@ -109,7 +101,7 @@ export function useWhisper(modelId: string) {
       const worker = workerRef.current;
       if (!worker) return Promise.reject(new Error("Whisper worker unavailable"));
       const id = nextId.current++;
-      return new Promise<string>((resolve, reject) => {
+      return new Promise<WhisperResult>((resolve, reject) => {
         pending.current.set(id, { resolve, reject });
         worker.postMessage({ type: "transcribe", id, audio, language }, [audio.buffer]);
       });
@@ -117,5 +109,19 @@ export function useWhisper(modelId: string) {
     [load],
   );
 
-  return { status, progress, device, error, notice, load, transcribe };
+  /** Throw away a failed or stuck load and start over. */
+  const retry = useCallback(() => {
+    dispose();
+    load();
+  }, [dispose, load]);
+
+  /** Abort a download in progress and go back to idle. Cached files are kept. */
+  const cancel = useCallback(() => {
+    dispose();
+    setStatus("idle");
+    setProgress(0);
+    setError(null);
+  }, [dispose]);
+
+  return { status, progress, device, error, notice, load, retry, cancel, transcribe };
 }

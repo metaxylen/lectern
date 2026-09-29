@@ -1,3 +1,4 @@
+import { segmentsToTimestampedText } from "./segments";
 import type { Lecture, Notes } from "./types";
 
 const HEADINGS: Record<string, Record<string, string>> = {
@@ -98,8 +99,10 @@ export function notesToMarkdown(notes: Notes, language: string, transcript?: str
 }
 
 export function lectureToMarkdown(l: Lecture): string {
-  if (l.notes) return notesToMarkdown(l.notes, l.notesLanguage, l.transcript);
-  return `# ${l.title}\n\n${l.transcript}\n`;
+  // Keep timestamps in the export when we have them; otherwise fall back to the plain text.
+  const transcript = l.segments?.length ? segmentsToTimestampedText(l.segments) : l.transcript;
+  if (l.notes) return notesToMarkdown(l.notes, l.notesLanguage, transcript);
+  return `# ${l.title}\n\n${transcript}\n`;
 }
 
 export function slugify(s: string): string {

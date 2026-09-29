@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { FileAudio, Mic, Square } from "lucide-react";
+import { FileAudio, Mic, RotateCcw, Square, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,6 +83,9 @@ export function RecorderPanel({ session }: { session: LectureSession }) {
                 ? " The live Web Speech preview will be used as a fallback transcript."
                 : ""}
             </AlertDescription>
+            <Button size="sm" variant="outline" className="mt-2" onClick={whisper.retry}>
+              <RotateCcw /> Retry download
+            </Button>
           </Alert>
         )}
         {whisper.status === "loading" && (
@@ -92,9 +95,20 @@ export function RecorderPanel({ session }: { session: LectureSession }) {
               <span>{whisper.progress}%</span>
             </div>
             <Progress value={whisper.progress} />
+            <Button size="xs" variant="ghost" className="self-start" onClick={whisper.cancel}>
+              <X /> Cancel download
+            </Button>
           </div>
         )}
         {whisper.notice && <p className="text-xs text-muted-foreground">{whisper.notice}</p>}
+        {!session.persistenceOk && (
+          <Alert>
+            <AlertDescription>
+              This browser cannot store audio locally, so this recording will not survive a crash or
+              reload. Keep this tab open until the notes are ready.
+            </AlertDescription>
+          </Alert>
+        )}
         {notice && (
           <Alert>
             <AlertDescription>{notice}</AlertDescription>

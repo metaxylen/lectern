@@ -83,3 +83,31 @@ describe("slugify", () => {
     expect(slugify("a".repeat(100))).toHaveLength(60);
   });
 });
+
+describe("lectureToMarkdown with segments", () => {
+  const lecture: Lecture = {
+    id: "1",
+    createdAt: 0,
+    title: "Timed",
+    transcript: "one two",
+    notes: null,
+    notesLanguage: "en",
+    audioLanguage: "auto",
+    sttEngine: "test",
+    notesEngine: null,
+    segments: [
+      { start: 0, end: 20, text: "one" },
+      { start: 75, end: 95, text: "two" },
+    ],
+  };
+
+  it("exports timestamped lines", () => {
+    expect(lectureToMarkdown(lecture)).toBe("# Timed\n\n[0:00] one\n[1:15] two\n");
+  });
+
+  it("includes timestamps in the transcript section next to notes", () => {
+    expect(lectureToMarkdown({ ...lecture, notes })).toContain(
+      "## Transcript\n\n[0:00] one\n[1:15] two",
+    );
+  });
+});

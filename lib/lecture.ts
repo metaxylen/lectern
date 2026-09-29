@@ -6,6 +6,7 @@ export function newLecture(
   audioLanguage: string,
   notesLanguage: string,
   sttEngine: string,
+  overrides: Partial<Lecture> = {},
 ): Lecture {
   const now = Date.now();
   const notes = parseNotesLanguage(notesLanguage);
@@ -20,5 +21,6 @@ export function newLecture(
     audioLanguage,
     sttEngine,
     notesEngine: null,
+    ...overrides,
   };
 }

@@ -146,6 +146,15 @@ describe("audio-store", () => {
   });
 });
 
+describe("listUnfinishedSessions idle filter", () => {
+  it("hides sessions written to recently (a live recording in another tab)", async () => {
+    await createSession(session("live"));
+    await putChunk(chunk("live", 0));
+    expect(await listUnfinishedSessions(60_000)).toEqual([]);
+    expect((await listUnfinishedSessions(0)).map((s) => s.id)).toEqual(["live"]);
+  });
+});
+
 describe("audio-store without IndexedDB", () => {
   it("reports unavailable and rejects operations", async () => {
     await resetAudioStoreForTests();
