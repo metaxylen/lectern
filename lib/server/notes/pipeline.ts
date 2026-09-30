@@ -195,7 +195,7 @@ function finish(notes: Notes, plain: string, input: NotesInput, segments: Segmen
   const base: Notes = { ...notes };
   if (sections?.length) base.sections = sections;
   else delete base.sections;
-  const grounded = groundNotes(applyKnownGlossary(base), plain);
+  const grounded = groundNotes(applyKnownGlossary(base), plain, { language: input.language });
   warnings.push(...grounded.warnings);
   if (grounded.notes.examQuestions.length < 3)
     warnings.push("Fewer than 3 exam questions were produced.");

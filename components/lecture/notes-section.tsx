@@ -1,4 +1,4 @@
-import { Copy, Download, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Copy, Download, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from "lucide-react";
 import { NotesView } from "@/components/notes-view";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -13,15 +13,23 @@ function engineLabel(engine: NotesEngine, model?: string) {
 }
 
 export function NotesSection({ session }: { session: LectureSession }) {
-  const { current, notesMeta, generating, busy, recorder } = session;
+  const { current, notesMeta, generating, busy, recorder, notesProgress, player } = session;
   const transcript = current?.transcript ?? "";
 
   return (
     <>
-      {generating && !current?.notes && (
+      {generating && (
         <Card>
-          <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Writing your notes…
+          <CardContent
+            className="flex items-center gap-3 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="size-4 animate-spin" />
+            {notesProgress ?? "Writing your notes"}…
+            <Button size="xs" variant="ghost" className="ml-auto" onClick={session.cancelNotes}>
+              <X /> Cancel
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -56,6 +64,18 @@ export function NotesSection({ session }: { session: LectureSession }) {
               {notesMeta.fallbackReasons.join(" · ")}
             </p>
           )}
+          {notesMeta?.warnings && notesMeta.warnings.length > 0 && (
+            <Alert>
+              <TriangleAlert />
+              <AlertDescription>
+                <ul className="list-disc pl-4" aria-label="Notes quality warnings">
+                  {notesMeta.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
           {notesMeta?.engine === "offline" &&
             (current.notesLanguage !== "en" || current.notesGlossary) && (
               <Alert>
@@ -65,7 +85,14 @@ export function NotesSection({ session }: { session: LectureSession }) {
                 </AlertDescription>
               </Alert>
             )}
-          {current.notes && <NotesView notes={current.notes} language={current.notesLanguage} />}
+          {current.notes && (
+            <NotesView
+              notes={current.notes}
+              language={current.notesLanguage}
+              title={current.title}
+              onSeek={current.hasAudio && player.ready ? (t) => player.seek(t) : undefined}
+            />
+          )}
         </section>
       )}
     </>

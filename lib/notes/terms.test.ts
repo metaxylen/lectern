@@ -58,3 +58,14 @@ describe("fixGlossary / applyKnownGlossary", () => {
     expect(KNOWN_TERM_COUNT).toBeGreaterThan(100);
   });
 });
+
+describe("englishForTurkish", () => {
+  it("maps dictionary Turkish wording back to English", async () => {
+    const { englishForTurkish } = await import("./terms");
+    expect(englishForTurkish("Yarış durumu")).toBe("race condition");
+    expect(englishForTurkish("kilitlenme (deadlock)")).toBe("deadlock");
+    expect(englishForTurkish("iş parçacığı")).toBe("thread");
+    expect(englishForTurkish("uydurma terim")).toBeUndefined();
+    expect(englishForTurkish("")).toBeUndefined();
+  });
+});

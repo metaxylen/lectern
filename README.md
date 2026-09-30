@@ -45,29 +45,50 @@ whatever your browser can decode).
 
 ### Notes generation
 
-_Notes language_ defaults to **English + Turkish glossary**: English notes, Turkish parts of the lecture kept, plus a
-table of key terms with Turkish equivalents. Other options: English only, Türkçe (English terms kept in parentheses),
-and a few other languages.
+Notes are built by a pipeline in `lib/server/notes/` designed to be faithful to what the lecturer actually said:
+
+1. **Clean the transcript.** Whisper hallucinations ("Thank you.", "Altyazı M.K.", repeated phrases), stutters and
+   fillers are removed before anything is summarized (`lib/notes/clean.ts`).
+2. **Summarize.** Short lectures are summarized in one pass with `[m:ss]` markers so chapters can cite where they
+   begin. Long lectures are read part by part and merged; chapter timestamps then come from the parts themselves, so
+   they are exact. If a part fails, a simpler summary is used for it and you are told.
+3. **Constrain and repair.** Ollama is given a JSON Schema so small models return valid structure; invalid output is
+   shown back to the model once to fix.
+4. **Dedicated exam-remark pass.** Everything the lecturer said about exams, quizzes, homework, deadlines or what to
+   memorize (English or Turkish cues) is collected by a separate small task and written as self-contained, translated
+   instructions. Models tend to skip or invent these when they also have to write everything else.
+5. **Verify.** Definitions and glossary terms the transcript does not support are removed and reported as warnings;
+   Turkish glossary wording is corrected from a built-in dictionary of ~120 technical terms
+   (`lib/notes/terms.ts`) that is also given to the model as preferred wording.
+
+Output: title, summary, **exam & homework notes**, **chapters with timestamps** (click to play the audio), key points,
+definitions, glossary (EN–TR), likely exam questions and **flashcards** (downloadable for Anki). You can add **course or
+topic hints** (names, terms, spellings) that are used to fix misheard words.
+
+_Notes language_ defaults to **English + Turkish glossary**. Other options: English only, Türkçe (English terms kept in
+parentheses) and a few other languages.
 
 Engines are chosen automatically in this order (or force one in the _Notes engine_ dropdown):
 
 1. **Ollama** — if a local [Ollama](https://ollama.com) server is reachable at `OLLAMA_HOST` (default
-   `http://127.0.0.1:11434`). Uses `OLLAMA_MODEL`, otherwise the first installed model among qwen2.5, qwen3, llama3,
-   gemma, mistral, phi. Try `ollama pull qwen2.5:7b`. Very long transcripts are first condensed to fit the context window.
+   `http://127.0.0.1:11434`). Uses `OLLAMA_MODEL`, otherwise the best installed model (families qwen2.5, qwen3,
+   gemma3, llama3, mistral, phi; within a family the largest). Quality rises clearly with model size:
+   `ollama pull qwen2.5:14b` is a good choice on a 16 GB+ machine, `qwen2.5:7b` on smaller ones.
 2. **Gemini free tier** — only if you set `GEMINI_API_KEY` (get one free at
    [aistudio.google.com/apikey](https://aistudio.google.com/apikey)); model `GEMINI_MODEL` (default `gemini-flash-latest`).
    The transcript is sent to Google when this is used.
-3. **Built-in offline summarizer** — zero setup, always works. Scores sentences by term frequency and cue words
-   ("important", "exam", "sınav"…), picks the summary and key points, detects definitions ("X is a…", "X, Y'dir",
-   "X denir") and turns them into exam questions. It selects sentences from the transcript as spoken, so Turkish asides are
-   kept verbatim, but it **cannot translate or build the Turkish glossary**; use Ollama or Gemini for those.
+3. **Built-in offline summarizer** — zero setup, always works. Picks sentences from the transcript by term frequency
+   and cue words, detects definitions, exam remarks and chapters. It cannot translate or build the Turkish glossary.
 
-The Ollama and Gemini prompt tells the model that the transcript is mixed English/Turkish speech-recognition output that
-may contain recognition errors, to fix obvious ones from context, to keep the Turkish remarks (e.g. exam hints), and to
-write in the selected notes language.
+Progress streams to the page while notes are written (long lectures take minutes) and can be cancelled; cancelling
+stops the model on the server too.
 
-The header shows which engines are available right now, and each set of notes is labelled with the engine that made it
-(plus why earlier engines were skipped).
+### Measuring quality
+
+`npm run eval` runs the pipeline against a real engine on fixture lectures (English with Turkish asides and ASR
+errors, a long lecture that needs the part-by-part path, Turkish notes) and scores concept coverage, exam-remark recall,
+junk/hallucination leaks and structure. `EVAL_ENGINE=gemini` picks another engine, `EVAL_ONLY=short` filters fixtures,
+`EVAL_SHOW=1` prints the notes. Run it after changing prompts or models; it is not part of `npm test`.
 
 ### Configuration (all optional)
 
@@ -101,7 +122,9 @@ Copy `.env.example` to `.env.local` and set what you need: `OLLAMA_HOST`, `OLLAM
 - `hooks/use-whisper.ts`, `lib/stt/whisper.worker.ts`, `lib/stt/detect-language.ts` — local Whisper in a worker, with per-chunk language detection
 - `hooks/use-recorder.ts`, `hooks/use-speech-preview.ts` — microphone chunks and Web Speech preview
 - `app/api/notes`, `app/api/status`, `app/api/health` — HTTP API (validated with zod, rate limited, uniform `{ error, code }` errors)
-- `lib/server/notes/` — prompt, JSON normalization, Ollama and Gemini engines, and the fallback chain
+- `lib/server/notes/` — prompts, pipeline (single pass / part-by-part), LLM clients, validation and the fallback chain
+- `lib/notes/` — transcript cleaning, chunking, grounding, exam-remark detection, term dictionary, offline extras
+- `eval/` — quality evaluation fixtures and runner
 - `lib/server/env.ts` — validated server environment; `lib/server/rate-limit.ts` — in-memory limiter
 - `lib/extractive.ts` — offline summarizer (also used in the browser if the server is unreachable)
 - `lib/notes-client.ts` — browser side of `/api/notes` with offline fallback

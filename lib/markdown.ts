@@ -1,4 +1,4 @@
-import { segmentsToTimestampedText } from "./segments";
+import { formatTimestamp, segmentsToTimestampedText } from "./segments";
 import type { Lecture, Notes } from "./types";
 
 const HEADINGS: Record<string, Record<string, string>> = {
@@ -10,6 +10,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Cevap",
     transcript: "Transkript",
     glossary: "Sözlük (EN–TR)",
+    hints: "Sınav ve ödev notları",
+    chapters: "Bölümler",
+    flashcards: "Kartlar",
   },
   en: {
     summary: "Summary",
@@ -19,6 +22,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Answer",
     transcript: "Transcript",
     glossary: "Glossary (EN–TR)",
+    hints: "Exam & homework notes",
+    chapters: "Chapters",
+    flashcards: "Flashcards",
   },
   de: {
     summary: "Zusammenfassung",
@@ -28,6 +34,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Antwort",
     transcript: "Transkript",
     glossary: "Sözlük (EN–TR)",
+    hints: "Prüfungs- und Hausaufgabenhinweise",
+    chapters: "Kapitel",
+    flashcards: "Karteikarten",
   },
   fr: {
     summary: "Résumé",
@@ -37,6 +46,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Réponse",
     transcript: "Transcription",
     glossary: "Glossary (EN–TR)",
+    hints: "Examens et devoirs",
+    chapters: "Chapitres",
+    flashcards: "Cartes mémoire",
   },
   es: {
     summary: "Resumen",
@@ -46,6 +58,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Respuesta",
     transcript: "Transcripción",
     glossary: "Glossary (EN–TR)",
+    hints: "Examen y tareas",
+    chapters: "Capítulos",
+    flashcards: "Tarjetas",
   },
   ar: {
     summary: "الملخص",
@@ -55,6 +70,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "الإجابة",
     transcript: "النص الكامل",
     glossary: "Glossary (EN–TR)",
+    hints: "ملاحظات الامتحان والواجبات",
+    chapters: "الفصول",
+    flashcards: "بطاقات",
   },
   ru: {
     summary: "Краткое содержание",
@@ -64,6 +82,9 @@ const HEADINGS: Record<string, Record<string, string>> = {
     answer: "Ответ",
     transcript: "Расшифровка",
     glossary: "Glossary (EN–TR)",
+    hints: "Экзамен и домашние задания",
+    chapters: "Главы",
+    flashcards: "Карточки",
   },
 };
 
@@ -71,6 +92,20 @@ export function notesToMarkdown(notes: Notes, language: string, transcript?: str
   const h = HEADINGS[language] ?? HEADINGS.en;
   const out: string[] = [`# ${notes.title}`, ""];
   out.push(`## ${h.summary}`, "", notes.summary, "");
+  if (notes.examHints?.length) {
+    out.push(`## ${h.hints}`, "", ...notes.examHints.map((x) => `- ${x}`), "");
+  }
+  if (notes.sections?.length) {
+    out.push(
+      `## ${h.chapters}`,
+      "",
+      ...notes.sections.map(
+        (c) =>
+          `- ${c.start !== undefined ? `**[${formatTimestamp(c.start)}]** ` : ""}**${c.title}**${c.summary ? `: ${c.summary}` : ""}`,
+      ),
+      "",
+    );
+  }
   out.push(`## ${h.keyPoints}`, "", ...notes.keyPoints.map((p) => `- ${p}`), "");
   out.push(
     `## ${h.definitions}`,
@@ -92,6 +127,14 @@ export function notesToMarkdown(notes: Notes, language: string, transcript?: str
     if (q.answer) out.push(`   - ${h.answer}: ${q.answer}`);
   });
   out.push("");
+  if (notes.flashcards?.length) {
+    out.push(
+      `## ${h.flashcards}`,
+      "",
+      ...notes.flashcards.map((c) => `- **${c.front}** — ${c.back}`),
+      "",
+    );
+  }
   if (transcript?.trim()) {
     out.push(`## ${h.transcript}`, "", transcript.trim(), "");
   }

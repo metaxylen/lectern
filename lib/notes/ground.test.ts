@@ -61,3 +61,44 @@ describe("groundNotes", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("groundNotes for non-English notes", () => {
+  const notes: Notes = {
+    title: "T",
+    summary: "S",
+    keyPoints: ["k"],
+    definitions: [
+      { term: "yarış durumu (race condition)", definition: "x" },
+      { term: "Semafor", definition: "dictionary translation of a grounded term" },
+      { term: "kilitlenme", definition: "dictionary translation of deadlock" },
+      { term: "Bellek yönetimi", definition: "foreign term we cannot judge: kept" },
+      {
+        term: "kuantum tünelleme (quantum tunnelling)",
+        definition: "parenthetical is not in the transcript",
+      },
+    ],
+    examQuestions: [],
+  };
+  const transcript =
+    "A race condition is bad. Semaphores keep a counter. Deadlock happens when threads wait for each other.";
+
+  it("accepts translated terms backed by the transcript and drops fabricated ones", () => {
+    const { notes: out, warnings } = groundNotes(notes, transcript, { language: "tr" });
+    expect(out.definitions.map((d) => d.term)).toEqual([
+      "yarış durumu (race condition)",
+      "Semafor",
+      "kilitlenme",
+      "Bellek yönetimi",
+    ]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("stays strict for English notes", () => {
+    const { notes: out } = groundNotes(notes, transcript, { language: "en" });
+    expect(out.definitions.map((d) => d.term)).toEqual([
+      "yarış durumu (race condition)",
+      "Semafor",
+      "kilitlenme",
+    ]);
+  });
+});

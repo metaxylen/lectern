@@ -113,6 +113,25 @@ const osLong = toSegments(topics.flatMap((t) => repeatTopic(t, 6)));
 
 export const FIXTURES: Fixture[] = [
   {
+    name: "Short OS lecture, Turkish notes",
+    language: "tr",
+    glossary: false,
+    segments: osShort,
+    expect: {
+      concepts: [
+        [/yarış durumu|race condition/i],
+        [/muteks|karşılıklı dışlama|mutex/i],
+        [/kritik bölge|critical section/i],
+        [/semafor|semaphore/i],
+        [/kilitlenme|deadlock/i],
+        [/döngüsel bekleme|circular wait|dairesel/i],
+      ],
+      hints: [/yarış durumu|race condition/i, /kilitlenme|deadlock/i, /ödev|homework|cuma/i],
+      forbidden: [/\bmew tex\b/i, /\bsema four\b/i, /thank you/i],
+      sections: true,
+    },
+  },
+  {
     name: "Short OS lecture (EN with Turkish asides, ASR errors)",
     language: "en",
     glossary: true,

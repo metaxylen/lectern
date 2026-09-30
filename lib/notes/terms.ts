@@ -184,3 +184,17 @@ export function applyKnownGlossary(notes: Notes): Notes {
 
 /** Number of dictionary entries (for tests and docs). */
 export const KNOWN_TERM_COUNT = TERMS.length;
+
+const TURKISH_TO_ENGLISH = TERMS.map(([en, tr]) => ({
+  en,
+  tr: normalizeForMatch(tr.replace(/\(.*?\)/g, "")),
+})).filter((t) => t.tr);
+
+/** The English term behind a dictionary Turkish wording ("yarış durumu" -> "race condition"). */
+export function englishForTurkish(term: string): string | undefined {
+  const norm = normalizeForMatch(term.replace(/\(.*?\)/g, ""));
+  if (!norm) return undefined;
+  return TURKISH_TO_ENGLISH.find(
+    (t) => norm === t.tr || norm.includes(` ${t.tr}`) || norm.startsWith(`${t.tr} `),
+  )?.en;
+}

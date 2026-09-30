@@ -111,3 +111,32 @@ describe("lectureToMarkdown with segments", () => {
     );
   });
 });
+
+describe("notesToMarkdown: new sections", () => {
+  const rich = {
+    ...notes,
+    examHints: ["Midterm: memorize race condition."],
+    sections: [
+      { title: "Races", summary: "About races.", start: 75 },
+      { title: "Untimed", summary: "" },
+    ],
+    flashcards: [{ front: "Mutex?", back: "A lock" }],
+  };
+  it("renders exam hints, chapters with timestamps and flashcards", () => {
+    const md = notesToMarkdown(rich, "en");
+    expect(md).toContain("## Exam & homework notes\n\n- Midterm: memorize race condition.");
+    expect(md).toContain("- **[1:15]** **Races**: About races.");
+    expect(md).toContain("- **Untimed**\n");
+    expect(md).toContain("## Flashcards\n\n- **Mutex?** — A lock");
+  });
+  it("localizes the headings", () => {
+    expect(notesToMarkdown(rich, "tr")).toContain("## Sınav ve ödev notları");
+    expect(notesToMarkdown(rich, "tr")).toContain("## Bölümler");
+  });
+  it("omits them when absent", () => {
+    const md = notesToMarkdown(notes, "en");
+    expect(md).not.toContain("Flashcards");
+    expect(md).not.toContain("Chapters");
+    expect(md).not.toContain("Exam & homework");
+  });
+});

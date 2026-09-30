@@ -66,7 +66,8 @@ export async function createOllamaClient(): Promise<LlmClient> {
           stream: false,
           format: opts?.schema ?? "json",
           keep_alive: "15m",
-          options: { temperature: 0.2, num_ctx: 16_384, num_predict: 4096 },
+          // A fixed seed keeps results reproducible for the same input (and makes evals comparable).
+          options: { temperature: 0.2, num_ctx: 16_384, num_predict: 4096, seed: 42 },
           messages: [{ role: "user", content: prompt }],
         }),
       });

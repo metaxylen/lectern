@@ -1,4 +1,6 @@
 import { SimpleSelect } from "@/components/simple-select";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LectureSession } from "@/hooks/use-lecture-session";
 import { WHISPER_MODELS } from "@/hooks/use-whisper";
@@ -59,6 +61,22 @@ export function SessionSetup({ session }: { session: LectureSession }) {
           options={ENGINE_OPTIONS}
           disabled={locked}
         />
+        <div className="flex flex-col gap-1.5 sm:col-span-2 xl:col-span-4">
+          <Label htmlFor="notes-context">Course or topic hints (optional)</Label>
+          <Textarea
+            id="notes-context"
+            rows={2}
+            maxLength={800}
+            value={session.context}
+            onChange={(e) => session.setContext(e.target.value)}
+            disabled={locked}
+            placeholder="e.g. Operating Systems, week 6: synchronization. Terms: mutex, semaphore, Dijkstra."
+          />
+          <p className="text-xs text-muted-foreground">
+            Names and terms listed here are used to correct misheard words and to keep notes
+            consistent.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

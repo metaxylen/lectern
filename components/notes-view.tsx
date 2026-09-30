@@ -1,6 +1,21 @@
 "use client";
 
-import { BookOpen, HelpCircle, Languages, ListChecks, Quote } from "lucide-react";
+import { useState } from "react";
+import {
+  BookOpen,
+  CalendarClock,
+  Download,
+  HelpCircle,
+  Languages,
+  Layers,
+  ListChecks,
+  Quote,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { flashcardsToAnkiTsv } from "@/lib/export/anki";
+import { formatTimestamp } from "@/lib/segments";
+import { slugify } from "@/lib/markdown";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Notes } from "@/lib/types";
@@ -14,6 +29,11 @@ const L: Record<string, Record<string, string>> = {
     glossary: "Sözlük (EN–TR)",
     answer: "Cevap",
     none: "Bu derste açık bir tanım bulunamadı.",
+    hints: "Sınav ve ödev notları",
+    chapters: "Bölümler",
+    flashcards: "Çalışma kartları",
+    flip: "Cevabı görmek için karta tıkla",
+    anki: "Anki için indir",
   },
   en: {
     summary: "Summary",
@@ -23,11 +43,57 @@ const L: Record<string, Record<string, string>> = {
     glossary: "Glossary (EN–TR)",
     answer: "Answer",
     none: "No explicit definitions found.",
+    hints: "Exam & homework notes",
+    chapters: "Chapters",
+    flashcards: "Flashcards",
+    flip: "Click a card to see the answer",
+    anki: "Download for Anki",
   },
 };
 
-export function NotesView({ notes, language }: { notes: Notes; language: string }) {
+function Flashcard({ front, back }: { front: string; back: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => setShown((v) => !v)}
+      aria-pressed={shown}
+      className={cn(
+        "flex min-h-24 flex-col justify-between rounded-lg border p-3 text-left text-sm transition-colors",
+        shown ? "border-primary/30 bg-primary/5" : "bg-card hover:bg-muted",
+      )}
+    >
+      <span className={cn("font-medium", shown && "text-xs text-muted-foreground")}>{front}</span>
+      {shown && <span className="mt-1.5 leading-relaxed">{back}</span>}
+    </button>
+  );
+}
+
+export function NotesView({
+  notes,
+  language,
+  title,
+  onSeek,
+}: {
+  notes: Notes;
+  language: string;
+  /** Used for the Anki file name. */
+  title?: string;
+  /** When audio is available, chapter timestamps jump to that moment. */
+  onSeek?: (seconds: number) => void;
+}) {
   const t = L[language] ?? L.en;
+  const downloadAnki = () => {
+    const tsv = flashcardsToAnkiTsv(notes.flashcards ?? []);
+    const url = URL.createObjectURL(
+      new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(title ?? notes.title)}-anki.tsv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-2xl font-semibold tracking-tight text-balance">{notes.title}</h2>
@@ -42,6 +108,63 @@ export function NotesView({ notes, language }: { notes: Notes; language: string 
           {notes.summary}
         </CardContent>
       </Card>
+
+      {notes.examHints && notes.examHints.length > 0 && (
+        <Card size="sm" className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarClock className="size-4" /> {t.hints}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul
+              className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed marker:text-amber-600"
+              aria-label={t.hints}
+            >
+              {notes.examHints.map((h, i) => (
+                <li key={i}>{h}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {notes.sections && notes.sections.length > 0 && (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="size-4" /> {t.chapters}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-3 text-sm" aria-label={t.chapters}>
+              {notes.sections.map((c, i) => (
+                <li key={i} className="flex gap-3">
+                  {c.start !== undefined &&
+                    (onSeek ? (
+                      <button
+                        type="button"
+                        onClick={() => onSeek(c.start!)}
+                        aria-label={`Play from ${formatTimestamp(c.start)}`}
+                        className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground tabular-nums underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        {formatTimestamp(c.start)}
+                      </button>
+                    ) : (
+                      <span className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                        {formatTimestamp(c.start)}
+                      </span>
+                    ))}
+                  <div>
+                    <p className="font-medium">{c.title}</p>
+                    {c.summary && <p className="text-muted-foreground">{c.summary}</p>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
+      )}
 
       <Card size="sm">
         <CardHeader>
@@ -127,6 +250,27 @@ export function NotesView({ notes, language }: { notes: Notes; language: string 
           </ol>
         </CardContent>
       </Card>
+
+      {notes.flashcards && notes.flashcards.length > 0 && (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="size-4" /> {t.flashcards}
+              <Button size="xs" variant="outline" className="ml-auto" onClick={downloadAnki}>
+                <Download /> {t.anki}
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">{t.flip}</p>
+            <div className="grid gap-2 sm:grid-cols-2" aria-label={t.flashcards}>
+              {notes.flashcards.map((c, i) => (
+                <Flashcard key={i} front={c.front} back={c.back} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

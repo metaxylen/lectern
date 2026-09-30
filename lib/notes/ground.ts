@@ -1,4 +1,5 @@
 import type { Notes } from "../types";
+import { englishForTurkish } from "./terms";
 
 /**
  * Small models invent plausible-sounding terms. "Grounding" keeps only claims whose key words
@@ -46,14 +47,34 @@ export function isGrounded(term: string, transcriptNorm: string, threshold = 0.6
   return hits / words.length >= threshold;
 }
 
+/**
+ * Is `term` backed by the transcript? Terms in another language than the (English) lectures cannot
+ * be matched word for word, so they count as supported when their English parenthetical, or the
+ * English term behind a known Turkish wording, is in the transcript. A foreign term we cannot
+ * judge at all is kept: dropping it would punish correct translations.
+ */
+export function isTermSupported(term: string, transcriptNorm: string, language = "en"): boolean {
+  if (isGrounded(term, transcriptNorm)) return true;
+  const parenthetical = [...term.matchAll(/\(([^)]+)\)/g)].map((m) => m[1]);
+  if (parenthetical.some((p) => isGrounded(p, transcriptNorm))) return true;
+  const english = englishForTurkish(term);
+  if (english && isGrounded(english, transcriptNorm)) return true;
+  if (language === "en") return false;
+  return parenthetical.length === 0 && !english;
+}
+
 export type GroundingResult = { notes: Notes; warnings: string[] };
 
 /** Drop definitions and glossary entries whose English term is not in the transcript. */
-export function groundNotes(notes: Notes, transcript: string): GroundingResult {
+export function groundNotes(
+  notes: Notes,
+  transcript: string,
+  opts: { language?: string } = {},
+): GroundingResult {
   const norm = normalizeForMatch(transcript);
   const warnings: string[] = [];
 
-  const definitions = notes.definitions.filter((d) => isGrounded(d.term, norm));
+  const definitions = notes.definitions.filter((d) => isTermSupported(d.term, norm, opts.language));
   const droppedDefs = notes.definitions.length - definitions.length;
   if (droppedDefs > 0) {
     warnings.push(
@@ -63,7 +84,7 @@ export function groundNotes(notes: Notes, transcript: string): GroundingResult {
 
   let glossary = notes.glossary;
   if (glossary) {
-    const kept = glossary.filter((g) => isGrounded(g.term, norm));
+    const kept = glossary.filter((g) => isTermSupported(g.term, norm, "en"));
     const dropped = glossary.length - kept.length;
     if (dropped > 0) {
       warnings.push(
