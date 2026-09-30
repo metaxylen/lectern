@@ -21,6 +21,19 @@ access there.
 
 ## How it works
 
+### Audio sources and live transcript
+
+- **Microphone**: any input device. Virtual inputs such as BlackHole or Loopback show up here too, which is how you
+  capture _everything the computer plays_ on a Mac.
+- **Browser tab or screen audio**: the audio of a shared tab (Chrome/Edge; tick "Also share tab audio" in the picker).
+  On Windows and ChromeOS the same picker can share the whole system's audio. macOS cannot share system audio from a
+  browser; that needs a virtual input as above.
+- **Tab audio + my microphone**: both mixed into one recording, for calls and online lectures where you also speak.
+- **Live transcript** (on by default): every few seconds the audio captured so far in the current 20 s part is decoded
+  with Whisper and shown as a grey draft (`lib/stt/live.ts`). It works with every source because it listens to the same
+  stream that is recorded. It never delays the real transcript (it is skipped while the model is busy) and is replaced by
+  the final text as each part finishes. It costs processor time; turn it off on a slow or hot machine.
+
 ### Speech to text (mixed English + Turkish)
 
 | Mode                                         | What it is                                                                                                                                                                                                                                                                                                                                   | Cost / privacy                                                                                                                                                   |

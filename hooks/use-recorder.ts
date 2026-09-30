@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AudioSourceError,
+  openAudioSource,
+  type AudioSource,
+  type OpenedAudio,
+} from "@/lib/audio/capture";
 import { CHUNK_SECONDS } from "@/lib/stt/audio";
 
 export type RecordedChunk = {
@@ -43,6 +49,8 @@ export function useRecorder(handlers: RecorderHandlers) {
   });
 
   const streamRef = useRef<MediaStream | null>(null);
+  const openedRef = useRef<OpenedAudio | null>(null);
+  const [sourceLabel, setSourceLabel] = useState<string | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -71,8 +79,10 @@ export function useRecorder(handlers: RecorderHandlers) {
   const cleanup = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (tickRef.current) clearInterval(tickRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    openedRef.current?.close();
+    openedRef.current = null;
     streamRef.current = null;
+    setSourceLabel(null);
     recRef.current = null;
     releaseWakeLock();
     setRecording(false);
@@ -133,47 +143,48 @@ export function useRecorder(handlers: RecorderHandlers) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [acquireWakeLock]);
 
-  const start = useCallback(async () => {
-    setError(null);
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setError("This browser does not support microphone recording.");
-      return false;
-    }
-    try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-    } catch (err) {
-      const denied = err instanceof DOMException && err.name === "NotAllowedError";
-      setError(
-        denied
-          ? "Microphone permission was denied. Allow it in the browser and try again."
-          : "Could not open the microphone. Is one connected? (Needs HTTPS or localhost.)",
-      );
-      return false;
-    }
-    // If the microphone disappears mid-lecture (unplugged, revoked), finish cleanly instead of
-    // silently recording nothing.
-    streamRef.current.getAudioTracks().forEach((track) => {
-      track.onended = () => {
+  /** Start recording from `source`. Resolves to the live stream (for taps) or null if it could not open. */
+  const start = useCallback(
+    async (source: AudioSource = { kind: "mic" }): Promise<MediaStream | null> => {
+      setError(null);
+      if (typeof MediaRecorder === "undefined") {
+        setError("This browser does not support audio recording.");
+        return null;
+      }
+      let opened: OpenedAudio;
+      try {
+        opened = await openAudioSource(source);
+      } catch (err) {
+        // Closing the sharing picker is a choice, not a failure worth shouting about.
+        if (err instanceof AudioSourceError && err.code !== "cancelled") setError(err.message);
+        else if (!(err instanceof AudioSourceError)) setError("Could not open the audio source.");
+        return null;
+      }
+      openedRef.current = opened;
+      streamRef.current = opened.stream;
+      setSourceLabel(opened.label);
+      // If the source disappears mid-recording (microphone unplugged, "Stop sharing" clicked),
+      // finish cleanly instead of silently recording nothing.
+      opened.onEnded(() => {
         if (recRef.current?.state === "recording") {
-          setError("The microphone stopped. Your recording so far has been kept.");
+          setError("The audio source stopped. Your recording so far has been kept.");
           stoppingRef.current = true;
           if (timerRef.current) clearTimeout(timerRef.current);
           recRef.current.stop();
         }
-      };
-    });
-    stoppingRef.current = false;
-    indexRef.current = 0;
-    setElapsed(0);
-    setRecording(true);
-    void acquireWakeLock();
-    const t0 = Date.now();
-    tickRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 500);
-    cycle();
-    return true;
-  }, [acquireWakeLock, cycle]);
+      });
+      stoppingRef.current = false;
+      indexRef.current = 0;
+      setElapsed(0);
+      setRecording(true);
+      void acquireWakeLock();
+      const t0 = Date.now();
+      tickRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 500);
+      cycle();
+      return opened.stream;
+    },
+    [acquireWakeLock, cycle],
+  );
 
   const stop = useCallback(() => {
     const rec = recRef.current;
@@ -199,5 +210,5 @@ export function useRecorder(handlers: RecorderHandlers) {
     [cleanup],
   );
 
-  return { recording, elapsed, error, start, stop, chunkSeconds: CHUNK_SECONDS };
+  return { recording, elapsed, error, sourceLabel, start, stop, chunkSeconds: CHUNK_SECONDS };
 }

@@ -3,6 +3,7 @@ import { FileAudio, Mic, RotateCcw, Square, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AudioSourcePicker } from "@/components/lecture/audio-source";
 import { Progress } from "@/components/ui/progress";
 import type { LectureSession } from "@/hooks/use-lecture-session";
 import { mmss } from "@/lib/format";
@@ -14,6 +15,7 @@ export function RecorderPanel({ session }: { session: LectureSession }) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-4">
+        <AudioSourcePicker session={session} />
         <div className="flex flex-wrap items-center gap-3">
           {recorder.recording ? (
             <Button
@@ -62,14 +64,16 @@ export function RecorderPanel({ session }: { session: LectureSession }) {
                 <span className="relative inline-flex size-3 rounded-full bg-red-500" />
               </span>
               <span className="font-mono tabular-nums">{mmss(recorder.elapsed)}</span>
-              <span className="text-muted-foreground">· chunks every {recorder.chunkSeconds}s</span>
+              <span className="text-muted-foreground">
+                · {recorder.sourceLabel ?? "recording"} · chunks every {recorder.chunkSeconds}s
+              </span>
             </div>
           )}
         </div>
 
         {recorder.error && (
           <Alert variant="destructive">
-            <AlertTitle>Microphone problem</AlertTitle>
+            <AlertTitle>Audio source problem</AlertTitle>
             <AlertDescription>{recorder.error}</AlertDescription>
           </Alert>
         )}

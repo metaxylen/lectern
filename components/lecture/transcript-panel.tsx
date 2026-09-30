@@ -8,10 +8,19 @@ import { findSegmentIndex, formatTimestamp } from "@/lib/segments";
 import { cn } from "@/lib/utils";
 
 export function TranscriptPanel({ session }: { session: LectureSession }) {
-  const { current, recorder, preview, pending, partsProgress, player, audioInfo, busy } = session;
+  const { current, recorder, preview, pending, partsProgress, player, audioInfo, busy, whisper } =
+    session;
   const transcript = current?.transcript ?? "";
   const segments = current?.segments ?? [];
-  const showPreview = recorder.recording && (preview.finalText || preview.interim);
+  // Provisional text for the chunk being recorded: Whisper's live decode, or (microphone only, while
+  // the model is still loading) the browser's own recognizer as a stopgap.
+  const liveText = recorder.recording ? session.live.text : "";
+  const stopgap =
+    recorder.recording && !liveText && whisper.status !== "ready" && session.sourceChoice === "mic"
+      ? `${preview.finalText} ${preview.interim}`.trim()
+      : "";
+  const interimText = liveText || stopgap;
+  const showPreview = !!interimText;
   const activeIndex = player.playing ? findSegmentIndex(segments, player.currentTime) : -1;
   const canSeek = player.ready && !!current?.hasAudio;
   const transcribing = (pending > 0 || partsProgress) && !recorder.recording;
@@ -86,8 +95,11 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
               transcript
             )}
             {showPreview && (
-              <span className="block text-muted-foreground italic">
-                {preview.finalText} {preview.interim}
+              <span className="mt-1 block text-muted-foreground italic" aria-live="off">
+                <span className="mr-1.5 rounded bg-muted px-1 text-[10px] font-medium uppercase not-italic">
+                  {liveText ? "live" : "preview"}
+                </span>
+                {interimText}
               </span>
             )}
           </div>
@@ -96,15 +108,20 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
             {current?.hasAudio && !recorder.recording
               ? "Nothing has been transcribed yet. The audio is saved on this device."
               : recorder.recording
-                ? `Listening… the first Whisper text appears after ${recorder.chunkSeconds} seconds${preview.supported ? ", with a faster live preview in grey italics" : ""}.`
+                ? session.liveEnabled
+                  ? whisper.status === "ready"
+                    ? "Listening… live text appears in a few seconds."
+                    : "Listening… the speech model is still loading; live text starts when it is ready."
+                  : `Listening… the first text appears after ${recorder.chunkSeconds} seconds.`
                 : "Press Record to start, or upload a lecture recording. Everything is transcribed locally with Whisper, in the language spoken (never translated)."}
           </p>
         )}
 
         {showPreview && (
           <p className="text-xs text-muted-foreground">
-            Grey italics is the browser&apos;s live preview (Web Speech API, one language only:
-            en-US unless you pick another). Whisper replaces it as each chunk finishes.
+            {liveText
+              ? "Grey italics is a live draft, refreshed every few seconds. The final transcript replaces it as each part finishes."
+              : "Grey italics is the browser's own preview while the speech model loads; it only hears the microphone."}
           </p>
         )}
 

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
+import { listAudioInputs, type AudioInput, type AudioSource } from "@/lib/audio/capture";
+import { startPcmTap, type PcmTap } from "@/lib/audio/pcm-tap";
+import { LiveTranscriber } from "@/lib/stt/live";
 import { useRecorder, type RecordedChunk } from "@/hooks/use-recorder";
 import { useSpeechPreview } from "@/hooks/use-speech-preview";
 import {
@@ -40,6 +43,8 @@ import { decodeToMono16k } from "@/lib/stt/audio";
 import { shortModelName } from "@/lib/stt/models";
 import { CancelledError, transcribeSamples } from "@/lib/stt/pipeline";
 import type { EngineStatus, Lecture, NotesEngineChoice, NotesResult, Segment } from "@/lib/types";
+
+export type SourceChoice = "mic" | "tab" | "tab-mic";
 
 export type NotesMeta = Pick<NotesResult, "engine" | "model" | "fallbackReasons"> &
   Partial<Pick<NotesResult, "warnings" | "elapsedMs">>;
@@ -91,6 +96,11 @@ export function useLectureSession() {
   const [pending, setPending] = useState(0);
   const [partsProgress, setPartsProgress] = useState<{ done: number; total: number } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [sourceChoice, setSourceChoice] = useState<SourceChoice>("mic");
+  const [micDeviceId, setMicDeviceId] = useState("");
+  const [inputs, setInputs] = useState<AudioInput[]>([]);
+  const [liveEnabled, setLiveEnabled] = useState(true);
+  const [live, setLive] = useState<{ text: string; language?: string }>({ text: "" });
   const [notesProgress, setNotesProgress] = useState<string | null>(null);
   const [context, setContext] = useState("");
   const [finalizing, setFinalizing] = useState(false);
@@ -108,16 +118,37 @@ export function useLectureSession() {
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentRef = useRef<Lecture | null>(null);
   const cancelRef = useRef(false);
+  const pendingRef = useRef(0);
+  const tapRef = useRef<PcmTap | null>(null);
+  const liveRef = useRef<LiveTranscriber | null>(null);
   const notesAbortRef = useRef<AbortController | null>(null);
   const failedRef = useRef(0);
   const persistOkRef = useRef(true);
   const hasSessionRef = useRef(false);
   /** Timeline position (seconds) where the next live chunk begins. */
   const liveCursorRef = useRef({ t: 0 });
-  const settings = useRef({ audioLang, notesLang, engineChoice, modelId, context });
+  const settings = useRef({
+    audioLang,
+    notesLang,
+    engineChoice,
+    modelId,
+    context,
+    sourceChoice,
+    micDeviceId,
+    liveEnabled,
+  });
 
   useEffect(() => {
-    settings.current = { audioLang, notesLang, engineChoice, modelId, context };
+    settings.current = {
+      audioLang,
+      notesLang,
+      engineChoice,
+      modelId,
+      context,
+      sourceChoice,
+      micDeviceId,
+      liveEnabled,
+    };
     whisperRef.current = whisper;
   });
 
@@ -219,6 +250,7 @@ export function useLectureSession() {
   );
 
   const enqueue = useCallback((job: () => Promise<void>) => {
+    pendingRef.current += 1;
     setPending((p) => p + 1);
     queueRef.current = queueRef.current
       .then(job)
@@ -227,7 +259,10 @@ export function useLectureSession() {
         reportError(err, { source: "transcription" });
         toast.error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
       })
-      .finally(() => setPending((p) => p - 1));
+      .finally(() => {
+        pendingRef.current -= 1;
+        setPending((p) => p - 1);
+      });
   }, []);
 
   // --- transcription ------------------------------------------------------------------------
@@ -496,6 +531,7 @@ export function useLectureSession() {
 
   const onChunk = useCallback(
     (chunk: RecordedChunk) => {
+      liveRef.current?.newChunk();
       const lecture = currentRef.current;
       if (!lecture) return;
       const record: ChunkInput = { ...chunk, status: "pending" };
@@ -518,27 +554,88 @@ export function useLectureSession() {
     },
   });
 
+  const stopLive = useCallback(() => {
+    liveRef.current?.stop();
+    liveRef.current = null;
+    tapRef.current?.stop();
+    tapRef.current = null;
+    setLive({ text: "" });
+  }, []);
+
+  useEffect(() => stopLive, [stopLive]);
+
+  const refreshInputs = useCallback(async () => {
+    setInputs(await listAudioInputs());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      listAudioInputs().then((list) => {
+        if (!cancelled) setInputs(list);
+      });
+    void load();
+    const md = navigator.mediaDevices;
+    md?.addEventListener?.("devicechange", load);
+    return () => {
+      cancelled = true;
+      md?.removeEventListener?.("devicechange", load);
+    };
+  }, []);
+
   const startRecording = useCallback(async () => {
+    const { sourceChoice: choice, micDeviceId: deviceId, liveEnabled: wantLive } = settings.current;
+    const source: AudioSource =
+      choice === "mic"
+        ? { kind: "mic", deviceId: deviceId || undefined }
+        : { kind: "tab", includeMic: choice === "tab-mic", micDeviceId: deviceId || undefined };
+
     await beginSession("mic");
     whisper.load();
-    const ok = await recorder.start();
-    if (!ok) {
+    const stream = await recorder.start(source);
+    if (!stream) {
       if (hasSessionRef.current && currentRef.current)
         void write(() => deleteSession(currentRef.current!.id));
       hasSessionRef.current = false;
       return;
     }
-    preview.start(settings.current.audioLang === "auto" ? "en" : settings.current.audioLang);
-  }, [beginSession, preview, recorder, whisper, write]);
+    void refreshInputs(); // device names are only available once access was granted
+
+    // Live transcript: a second listener on the same stream, decoding the latest audio every few seconds.
+    if (wantLive) {
+      try {
+        const tap = await startPcmTap(stream);
+        tapRef.current = tap;
+        const transcriber = new LiveTranscriber({
+          ring: tap.ring,
+          transcribe: (audio, language) => whisperRef.current.transcribe(audio, language),
+          isBusy: () => pendingRef.current > 0 || whisperRef.current.status !== "ready",
+          language: () => settings.current.audioLang,
+          onUpdate: setLive,
+          onError: (err) => reportError(err, { source: "live-transcript" }),
+        });
+        liveRef.current = transcriber;
+        transcriber.start();
+      } catch (err) {
+        reportError(err, { source: "live-transcript-start" });
+      }
+    }
+    // The browser's own speech recognition only hears the default microphone, so it is a
+    // stopgap for microphone recordings while the Whisper model is still loading.
+    if (choice === "mic") {
+      preview.start(settings.current.audioLang === "auto" ? "en" : settings.current.audioLang);
+    }
+  }, [beginSession, preview, recorder, refreshInputs, whisper, write]);
 
   const stopRecording = useCallback(
     async (previewTextOverride?: string) => {
       const previewText = previewTextOverride ?? (preview.finalText + " " + preview.interim).trim();
       preview.stop();
+      stopLive();
       await recorder.stop();
       await finalize({ previewText });
     },
-    [finalize, preview, recorder],
+    [finalize, preview, recorder, stopLive],
   );
 
   useEffect(() => {
@@ -781,6 +878,14 @@ export function useLectureSession() {
     audioInfo,
     persistenceOk,
     // settings
+    sourceChoice,
+    setSourceChoice,
+    micDeviceId,
+    setMicDeviceId,
+    inputs,
+    liveEnabled,
+    setLiveEnabled,
+    live,
     audioLang,
     setAudioLang,
     notesLang,
