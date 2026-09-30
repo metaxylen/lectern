@@ -15,14 +15,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "stt — lecture note-taker",
+  title: { default: "Lectern: lecture transcription and study notes", template: "%s · Lectern" },
   description:
-    "Record or upload a lecture, transcribe it locally with Whisper, and get study notes. Free, no paid APIs.",
+    "Record or upload a lecture, transcribe it locally with Whisper, and get timestamped chapters, exam notes and flashcards. Local-first, mixed English and Turkish.",
+  applicationName: "Lectern",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="tr" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
         {children}
         <MonitoringProvider />

@@ -1,185 +1,239 @@
-# stt — free lecture note-taker
+<p align="center">
+  <img src="public/logo.svg" width="96" alt="Lectern logo" />
+</p>
 
-Record a lecture (or upload an audio file), watch the transcript appear, then get structured study notes:
-**title, summary, key points, definitions, likely exam questions** (and an optional **Turkish glossary** of key terms).
-It is tuned for lectures that are ~90% English with ~10% Turkish code-switching. Notes can be copied or downloaded as
-Markdown, and past lectures are saved in your browser (`localStorage`).
+<h1 align="center">Lectern</h1>
 
-**It costs nothing to run: no paid API, no account, no required key.** Nothing is sent to a paid service.
+<p align="center">
+  <strong>Lecture transcription and study notes that stay on your machine.</strong><br />
+  Record or upload a lecture. Get a timestamped transcript, chapters, exam and homework notes, a bilingual glossary and flashcards.
+  Built for lectures that are mostly English with Turkish asides.
+</p>
 
-Stack: Next.js (App Router) · TypeScript · Tailwind CSS · shadcn/ui.
+<p align="center">
+  <a href="https://github.com/metaxylen/lectern/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/metaxylen/lectern/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <img alt="Node 22+" src="https://img.shields.io/badge/node-%E2%89%A522-339933.svg" />
+  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-black.svg" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" />
+</p>
 
-## Run it
+<p align="center">
+  <img src="docs/images/overview.png" alt="Lectern: session setup, audio sources and a transcript with audio playback" width="900" />
+</p>
+
+---
+
+## Why Lectern
+
+Most transcription tools are cloud services that upload your audio, bill by the minute and assume one language per recording.
+Lectern is the opposite on all three counts:
+
+- **Local-first.** Speech recognition runs in your browser (OpenAI Whisper through WebGPU or WASM). Notes are written by a
+  model on your own machine (Ollama). Your audio never leaves the device.
+- **Built for code-switching.** A lecturer who says _"vizede mutlaka çıkacak, race condition tanımını ezberleyin"_ mid-sentence
+  is transcribed correctly: the language is detected for every 20-second part, and Turkish remarks are kept and translated
+  into the notes instead of being dropped.
+- **Faithful notes.** The pipeline cleans Whisper's hallucinations, removes definitions the lecture never contained,
+  and collects everything said about exams and homework in a dedicated pass, so the notes are something you can study from.
+- **It does not lose your recording.** Audio is written to disk while you record. A crash, a closed tab or a dead battery
+  costs a couple of seconds, not the lecture.
+
+## Features
+
+|                     |                                                                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sources**         | Microphone (any input, including virtual loopback devices), browser tab or screen audio, tab audio mixed with your microphone, or an uploaded file (mp3, wav, m4a, ogg, webm, flac) |
+| **Live transcript** | A draft that refreshes every few seconds while you record, for any source. Replaced by the final text as each part finishes                                                         |
+| **Transcript**      | Timestamped segments with language tags; click a timestamp to play from there; export to Markdown with timestamps                                                                   |
+| **Notes**           | Title, summary, **exam and homework notes**, **chapters with timestamps**, key points, definitions, EN–TR glossary, likely exam questions, **flashcards** (Anki export)             |
+| **Reliability**     | Crash-safe recording, per-part retry, re-transcribe with another model, cancel anywhere, audio stored on device and deletable                                                       |
+| **Engines**         | Ollama (local LLM) → Gemini free tier (optional) → built-in offline summarizer; the best available is chosen automatically                                                          |
+| **Quality tooling** | `npm run eval` scores the notes pipeline against real models on fixture lectures                                                                                                    |
+
+<p align="center">
+  <img src="docs/images/notes.png" alt="Generated notes: summary, exam notes, chapters, definitions, glossary, questions and flashcards" width="760" />
+</p>
+
+## Quick start
+
+Requirements: **Node.js 22+** and **Chrome or Edge** (other browsers work with limits, see [browser support](#browser-support)).
 
 ```bash
+git clone https://github.com/metaxylen/lectern.git
+cd lectern
 npm install
-npm run dev        # http://localhost:47231
+npm run dev          # http://localhost:47231
 ```
 
-Production: `npm run build && npm start` (also port 47231). Use `localhost` or HTTPS — browsers only allow microphone
-access there.
+Open the page and press **Record** or **Upload audio**. The first run downloads the Whisper model (40–250 MB, cached by
+the browser). Microphone access needs `localhost` or HTTPS.
+
+**For good notes, install a local model.** Without one, Lectern falls back to a simple offline summarizer.
+
+```bash
+# install Ollama from https://ollama.com, then:
+ollama pull gemma4:12b      # 8 GB, a good default for a 24 GB Mac
+ollama serve                # if it is not already running
+```
+
+Lectern detects Ollama automatically. See [choosing a model](#choosing-a-model) for other machines.
+
+Production build: `npm run build && npm start` (same port).
 
 ## How it works
 
-### Audio sources and live transcript
+```mermaid
+flowchart LR
+  A[Microphone<br/>Tab audio<br/>File] --> B[MediaRecorder<br/>20 s standalone parts]
+  B --> C[(IndexedDB<br/>audio + state)]
+  A --> T[PCM tap] --> L[Live decoder]
+  B --> W[Whisper in a Web Worker<br/>WebGPU / WASM]
+  L --> W
+  W --> S[Timestamped segments]
+  S --> N[/api/notes/]
+  N --> E{Engine}
+  E -->|local| O[Ollama]
+  E -->|optional| G[Gemini]
+  E -->|always| F[Offline summarizer]
+  N --> R[Notes: chapters, exam notes,<br/>glossary, flashcards]
+```
 
-- **Microphone**: any input device. Virtual inputs such as BlackHole or Loopback show up here too, which is how you
-  capture _everything the computer plays_ on a Mac.
-- **Browser tab or screen audio**: the audio of a shared tab (Chrome/Edge; tick "Also share tab audio" in the picker).
-  On Windows and ChromeOS the same picker can share the whole system's audio. macOS cannot share system audio from a
-  browser; that needs a virtual input as above.
-- **Tab audio + my microphone**: both mixed into one recording, for calls and online lectures where you also speak.
-- **Live transcript** (on by default): every few seconds the audio captured so far in the current 20 s part is decoded
-  with Whisper and shown as a grey draft (`lib/stt/live.ts`). It works with every source because it listens to the same
-  stream that is recorded. It never delays the real transcript (it is skipped while the model is busy) and is replaced by
-  the final text as each part finishes. It costs processor time; turn it off on a slow or hot machine.
+1. **Capture.** The recorder cuts the stream into standalone 20-second files and saves them to IndexedDB every two seconds.
+2. **Transcribe.** Each part is decoded to 16 kHz mono and transcribed by Whisper in a worker. The language (English or
+   Turkish) is chosen per part by comparing the decoder's language logits, because transformers.js does not detect it.
+3. **Clean and summarize.** Hallucinated phrases and repeats are removed. Short lectures are summarized in one pass; long ones
+   part by part, then merged. Output is constrained to a JSON schema and verified against the transcript.
+4. **Study.** Read the notes, jump to any chapter in the audio, flip flashcards, export Markdown or an Anki file.
 
-### Speech to text (mixed English + Turkish)
+More detail: [architecture](docs/architecture.md) · [notes pipeline](docs/notes-pipeline.md) · [audio sources](docs/audio-sources.md).
 
-| Mode                                         | What it is                                                                                                                                                                                                                                                                                                                                   | Cost / privacy                                                                                                                                                   |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Whisper in the browser** (main transcript) | [transformers.js](https://huggingface.co/docs/transformers.js) runs OpenAI's open-source Whisper weights inside a Web Worker, on **WebGPU** when available and **WASM** (CPU) otherwise. Default model: **small** when WebGPU is available, **base** otherwise (tiny/base/small selectable).                                                 | Free. Audio never leaves your machine. The model (~80 MB base, ~250 MB small) is downloaded from Hugging Face on first use and cached by the browser afterwards. |
-| **Web Speech API** (live preview)            | While recording, the browser's built-in `SpeechRecognition` shows a fast grey-italic preview, **en-US by default** (`tr-TR` if you pick Türkçe). It handles one language at a time, so Turkish asides look wrong here; Whisper replaces the preview as each chunk finishes. If Whisper cannot load, the preview text becomes the transcript. | Free. Chrome/Edge send audio to their vendor's speech service, so this is the only non-local piece; unsupported in Firefox.                                      |
+## Audio sources and system audio
 
-**Language handling.** The _Lecture language_ setting defaults to **Auto-detect per chunk (English + Turkish)**; the
-other choice for a fully English lecture is **English (primary)**, which forces English (Turkish sentences would then be
-garbled). Whisper always _transcribes_, it never translates: a Turkish sentence stays Turkish in the transcript.
+| Source                      | Captures                 | Notes                                                    |
+| --------------------------- | ------------------------ | -------------------------------------------------------- |
+| Microphone                  | Your chosen input device | Also lists virtual devices such as BlackHole or Loopback |
+| Browser tab or screen audio | The shared tab's sound   | Chrome/Edge. Tick **Also share tab audio** in the picker |
+| Tab audio + my microphone   | Both, mixed              | For calls and online lectures where you also speak       |
 
-transformers.js has no built-in Whisper language detection (it silently assumes English), so `lib/stt/detect-language.ts`
-runs one decoder step and compares the `<|en|>` and `<|tr|>` logits for each chunk, then transcribes that chunk with the
-winning language. Because detection happens per chunk, recording and uploads use short **20 s** windows
-(`NEXT_PUBLIC_CHUNK_SECONDS`, sensible range 15–30) so a Turkish sentence gets its own chunk. If a Turkish remark shares
-a chunk with English, the whole chunk gets one language; shorten the chunk size if that bites. Detection adds one extra
-encoder pass per chunk.
+A browser **cannot** capture everything a Mac plays. For system-wide audio (Zoom app, Spotify, any player), install a virtual
+audio input such as [BlackHole](https://existential.audio/blackhole/), route your output through it, and pick it as the
+input device. Step by step in [docs/audio-sources.md](docs/audio-sources.md). On Windows and ChromeOS the screen-share picker can
+share system audio directly.
 
-Recording uses `MediaRecorder`, cut into standalone chunks. Chunks are decoded to 16 kHz mono and transcribed one after
-another so the order is preserved. Uploaded files are decoded and split the same way (mp3, wav, m4a, ogg, webm, flac —
-whatever your browser can decode).
+<p align="center">
+  <img src="docs/images/audio-sources.png" alt="Audio source picker with tab and microphone mixing and the live transcript option" width="640" />
+</p>
 
-### Notes generation
+## Choosing a model
 
-Notes are built by a pipeline in `lib/server/notes/` designed to be faithful to what the lecturer actually said:
+Note quality depends mostly on the model. Lectern prefers the newest family you have installed and, within it, the largest
+model that fits in about 60% of your RAM (a model that does not fit the GPU runs many times slower).
 
-1. **Clean the transcript.** Whisper hallucinations ("Thank you.", "Altyazı M.K.", repeated phrases), stutters and
-   fillers are removed before anything is summarized (`lib/notes/clean.ts`).
-2. **Summarize.** Short lectures are summarized in one pass with `[m:ss]` markers so chapters can cite where they
-   begin. Long lectures are read part by part and merged; chapter timestamps then come from the parts themselves, so
-   they are exact. If a part fails, a simpler summary is used for it and you are told.
-3. **Constrain and repair.** Ollama is given a JSON Schema so small models return valid structure; invalid output is
-   shown back to the model once to fix.
-4. **Dedicated exam-remark pass.** Everything the lecturer said about exams, quizzes, homework, deadlines or what to
-   memorize (English or Turkish cues) is collected by a separate small task and written as self-contained, translated
-   instructions. Models tend to skip or invent these when they also have to write everything else.
-5. **Verify.** Definitions and glossary terms the transcript does not support are removed and reported as warnings;
-   Turkish glossary wording is corrected from a built-in dictionary of ~120 technical terms
-   (`lib/notes/terms.ts`) that is also given to the model as preferred wording.
+| Memory         | Suggested                                         | Notes                                                                                              |
+| -------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 24 GB (tested) | `gemma4:12b` (8 GB)                               | Fits comfortably; the model behind the screenshots. `qwen2.5:14b` (9 GB) also works well           |
+| 16 GB          | `gemma4:12b`                                      | Should fit; not tested by us                                                                       |
+| 8 GB           | a smaller model such as `gemma4:e4b`              | Not tested; expect weaker summaries, especially in Turkish                                         |
+| 32 GB+         | a 26–27B model (for example `qwen3.8:27b`, 4-bit) | Not tested; 4-bit 27B weights are about 18 GB, which needs raised GPU memory limits on a 24 GB Mac |
 
-Output: title, summary, **exam & homework notes**, **chapters with timestamps** (click to play the audio), key points,
-definitions, glossary (EN–TR), likely exam questions and **flashcards** (downloadable for Anki). You can add **course or
-topic hints** (names, terms, spellings) that are used to fix misheard words.
+Force a model with `OLLAMA_MODEL`. Compare models on your own lectures with `npm run eval`. On the bundled fixtures,
+`gemma4:12b` and `qwen2.5:14b` both cover all concepts and exam remarks; Gemma's Turkish wording is more consistent
+(terms kept as _"yarış durumu (race condition)"_, no leftover English), while Qwen is slightly faster.
 
-_Notes language_ defaults to **English + Turkish glossary**. Other options: English only, Türkçe (English terms kept in
-parentheses) and a few other languages.
+No local model? Set `GEMINI_API_KEY` (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)); the transcript is
+then sent to Google for note generation only.
 
-Engines are chosen automatically in this order (or force one in the _Notes engine_ dropdown):
+## Privacy
 
-1. **Ollama** — if a local [Ollama](https://ollama.com) server is reachable at `OLLAMA_HOST` (default
-   `http://127.0.0.1:11434`). Uses `OLLAMA_MODEL`, otherwise the best installed model: families are tried newest first (gemma4, qwen3.8, qwen3.6, qwen3, gemma3, qwen2.5, llama3, mistral, phi) and within a family the largest model that fits in about 60% of this machine's RAM is chosen, because a model that does not fit the GPU runs many times slower. On a 24 GB Mac `ollama pull gemma4:12b` (8 GB) is a good default. Compare models on your own lectures with `npm run eval`.
-2. **Gemini free tier** — only if you set `GEMINI_API_KEY` (get one free at
-   [aistudio.google.com/apikey](https://aistudio.google.com/apikey)); model `GEMINI_MODEL` (default `gemini-flash-latest`).
-   The transcript is sent to Google when this is used.
-3. **Built-in offline summarizer** — zero setup, always works. Picks sentences from the transcript by term frequency
-   and cue words, detects definitions, exam remarks and chapters. It cannot translate or build the Turkish glossary.
+- Audio is processed in your browser and stored in your browser's IndexedDB. Nothing is uploaded.
+- Notes are generated by Ollama on your machine, or by Gemini **only if you provide a key**.
+- Network requests Lectern makes: downloading the Whisper model from Hugging Face and the ONNX runtime files from the
+  jsDelivr CDN (once, then cached), the optional Gemini call, and, **for microphone recordings while the model is still loading only**, Chrome's built-in speech recognition, which
+  Google operates. There is no analytics or telemetry. Error reporting is off unless you set `NEXT_PUBLIC_ERROR_REPORT_URL`.
+- Delete a lecture's audio from the transcript panel, remove downloaded models from the **On this device** panel.
 
-Progress streams to the page while notes are written (long lectures take minutes) and can be cancelled; cancelling
-stops the model on the server too.
+## Configuration
 
-### Measuring quality
+Copy `.env.example` to `.env.local`. Everything is optional.
 
-`npm run eval` runs the pipeline against a real engine on fixture lectures (English with Turkish asides and ASR
-errors, a long lecture that needs the part-by-part path, Turkish notes) and scores concept coverage, exam-remark recall,
-junk/hallucination leaks and structure. `EVAL_ENGINE=gemini` picks another engine, `EVAL_ONLY=short` filters fixtures,
-`EVAL_SHOW=1` prints the notes. Run it after changing prompts or models; it is not part of `npm test`.
+| Variable                       | Default                  | Purpose                                                  |
+| ------------------------------ | ------------------------ | -------------------------------------------------------- |
+| `OLLAMA_HOST`                  | `http://127.0.0.1:11434` | Where Ollama listens                                     |
+| `OLLAMA_MODEL`                 | _(auto)_                 | Force a model                                            |
+| `GEMINI_API_KEY`               | _(unset)_                | Enables the Gemini engine                                |
+| `GEMINI_MODEL`                 | `gemini-flash-latest`    | Gemini model                                             |
+| `NOTES_MAX_TRANSCRIPT_CHARS`   | `500000`                 | Largest transcript `/api/notes` accepts                  |
+| `NOTES_RATE_LIMIT_PER_MINUTE`  | `20`                     | Per-client limit on `/api/notes`; `0` disables           |
+| `NEXT_PUBLIC_CHUNK_SECONDS`    | `20`                     | Part length; shorter parts give finer language detection |
+| `NEXT_PUBLIC_ERROR_REPORT_URL` | _(unset)_                | POST errors here as JSON                                 |
 
-### Configuration (all optional)
+Invalid values fail with a readable message instead of undefined behaviour. Details: [docs/configuration.md](docs/configuration.md).
 
-Copy `.env.example` to `.env.local` and set what you need: `OLLAMA_HOST`, `OLLAMA_MODEL`, `GEMINI_API_KEY`,
-`GEMINI_MODEL`, `NEXT_PUBLIC_CHUNK_SECONDS`.
+## Browser support
 
-## Reliability (audio is never lost)
+| Feature                          | Chrome / Edge           | Firefox                      | Safari                       |
+| -------------------------------- | ----------------------- | ---------------------------- | ---------------------------- |
+| Recording and transcription      | Tested (WebGPU or WASM) | Untested                     | Untested                     |
+| Tab and screen audio             | Yes                     | Not supported by the browser | Not supported by the browser |
+| Live transcript                  | Tested                  | Untested                     | Untested                     |
+| Browser speech preview (stopgap) | Yes                     | Not supported                | Untested                     |
 
-- **Crash-safe recording.** While you record, audio is written to IndexedDB every ~2 seconds (`lib/audio-store.ts`).
-  If the tab closes, the browser crashes or the battery dies, the next visit offers **Recover** for the
-  interrupted recording; it is transcribed and turned into notes like a normal lecture. A recording that is
-  still being written by another tab is not offered for recovery.
-- **Audio is kept with the lecture.** Recordings and uploads stay on this device so you can play them back.
-  Click a timestamp in the transcript to jump to that moment. **Delete audio** removes it but keeps the
-  transcript and notes. Nothing leaves your device.
-- **Nothing is lost when transcription fails.** Each part of a recording remembers whether it was
-  transcribed. If the model fails to load or a part errors, the audio stays saved and **Retry** transcribes
-  only what is missing. **Re-transcribe** redoes a lecture with the current model and language.
-- **Model downloads** can be cancelled or retried, and the **On this device** panel shows downloaded Whisper
-  models and browser storage, with a button to remove a model.
-- While recording the screen is kept awake (where supported), a lost microphone ends the recording cleanly
-  and keeps what was captured, and leaving the page mid-work asks for confirmation.
-- If IndexedDB is unavailable (some private modes) the app still works, but recordings cannot survive a crash;
-  it tells you so.
+Developed and tested on Chromium. Whisper `small` on CPU is slower than real time; use WebGPU or pick `base`.
 
 ## Project layout
 
-- `components/lecture-app.tsx` — thin composition of the panels in `components/lecture/`
-  (`app-header`, `session-setup`, `recorder-panel`, `transcript-panel`, `notes-section`, `engine-strip`)
-- `hooks/use-lecture-session.ts` — the whole record → transcribe → notes flow and its state
-- `hooks/use-whisper.ts`, `lib/stt/whisper.worker.ts`, `lib/stt/detect-language.ts` — local Whisper in a worker, with per-chunk language detection
-- `hooks/use-recorder.ts`, `hooks/use-speech-preview.ts` — microphone chunks and Web Speech preview
-- `app/api/notes`, `app/api/status`, `app/api/health` — HTTP API (validated with zod, rate limited, uniform `{ error, code }` errors)
-- `lib/server/notes/` — prompts, pipeline (single pass / part-by-part), LLM clients, validation and the fallback chain
-- `lib/notes/` — transcript cleaning, chunking, grounding, exam-remark detection, term dictionary, offline extras
-- `eval/` — quality evaluation fixtures and runner
-- `lib/server/env.ts` — validated server environment; `lib/server/rate-limit.ts` — in-memory limiter
-- `lib/extractive.ts` — offline summarizer (also used in the browser if the server is unreachable)
-- `lib/notes-client.ts` — browser side of `/api/notes` with offline fallback
-- `lib/storage.ts`, `lib/schemas.ts` — lecture metadata, transcript and notes in `localStorage`, validated on read
-- `lib/audio-store.ts` — audio sessions/chunks and per-chunk transcription state in IndexedDB
-- `lib/stt/pipeline.ts`, `lib/segments.ts` — cancellable, timestamped transcription; segment helpers
-- `hooks/use-audio-player.ts`, `lib/stt/model-cache.ts` — playback across chunks; downloaded-model management
-- `lib/monitoring.ts`, `instrumentation.ts`, `app/error.tsx`, `app/global-error.tsx` — error reporting and boundaries
+```
+app/                  Next.js routes and API (notes, status, health)
+components/           UI: session setup, recorder, transcript, notes, storage panel
+hooks/                useLectureSession (the flow), recorder, Whisper, audio player
+lib/audio/            Capture sources, PCM tap and ring buffer
+lib/stt/              Whisper worker, language detection, pipeline, live transcriber
+lib/notes/            Cleaning, chunking, grounding, exam-remark detection, term dictionary
+lib/server/notes/     Prompts, LLM clients, single-pass and part-by-part pipeline
+lib/audio-store.ts    Crash-safe audio and per-part state in IndexedDB
+eval/                 Notes-quality evaluation fixtures and runner
+e2e/                  Playwright tests (fake microphone, recovery, UI)
+docs/                 Architecture and guides
+```
 
 ## Development
 
-Requires Node 22 (`.nvmrc`).
+```bash
+npm run check         # typecheck + lint + format check + unit tests
+npm test              # unit and API tests (Vitest)
+npm run test:e2e      # browser tests (Playwright; first run: npx playwright install chromium)
+npm run eval          # notes quality against a real engine (needs Ollama or a Gemini key)
+```
 
-| Command                           | What it does                                                        |
-| --------------------------------- | ------------------------------------------------------------------- |
-| `npm run dev`                     | Dev server on port 47231                                            |
-| `npm run check`                   | Typecheck + lint + format check + unit tests (run before pushing)   |
-| `npm test` / `npm run test:watch` | Unit and API tests (Vitest)                                         |
-| `npm run test:coverage`           | Same, with coverage thresholds                                      |
-| `npm run test:e2e`                | Browser tests (Playwright); builds and serves the app on port 47232 |
-| `npm run format`                  | Prettier (with Tailwind class sorting)                              |
+CI runs typecheck, lint, format, coverage, build and the end-to-end suite on every push. See
+[docs/development.md](docs/development.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
-First e2e run: `npx playwright install chromium`. Recording tests use Chromium's fake microphone.
-An opt-in test runs the real tiny Whisper model on synthesized speech (macOS): `E2E_WHISPER=1 npm run test:e2e -- e2e/whisper.spec.ts`. E2E tests never download Whisper models; they seed
-`localStorage` and use the offline engine, so they are fast and deterministic.
+## Known limitations
 
-CI (`.github/workflows/ci.yml`) runs typecheck, lint, format check, coverage and build, then the e2e suite.
+- Lectures and audio live in one browser profile; clearing site data deletes them. Export Markdown to keep a copy.
+- Timestamps have 20-second granularity (one segment per part). Very long uploads are decoded in memory at once
+  (about 460 MB per hour of audio).
+- Recording is cut into standalone files, so a few milliseconds of audio can be lost at each cut.
+- Automatic language detection chooses between English and Turkish only; pick another language explicitly.
+- Small models (and small Whisper sizes) make mistakes. Notes flag what they removed, but read them critically.
+- Real-world system-audio capture on macOS depends on a third-party virtual device.
 
-### Operations
+## Roadmap
 
-- `GET /api/health` — liveness probe (no external calls).
-- `/api/notes` limits: `NOTES_RATE_LIMIT_PER_MINUTE` (default 20 per client) and `NOTES_MAX_TRANSCRIPT_CHARS`
-  (default 500 000). The limiter is in-memory and per process; use a shared store before running several instances,
-  and only trust `x-forwarded-for` behind a proxy you control.
-- Invalid environment values fail with a readable message (HTTP 500 `misconfigured`) instead of undefined behaviour.
-- Errors are logged as `[error] ...` and, if `NEXT_PUBLIC_ERROR_REPORT_URL` is set, POSTed there as JSON.
+- Accounts and cross-device sync
+- Editing notes and transcripts in place
+- Sentence-level timestamps
+- PDF and Notion export
+- Mobile-friendly layout and installable app
 
-## Known limits
+Ideas and bug reports are welcome in [issues](https://github.com/metaxylen/lectern/issues).
 
-## Known limits
+## Acknowledgements
 
-- First Whisper run needs internet once (model download); after that it works offline, apart from the Web Speech preview.
-- Whisper `small` on CPU/WASM is slower than real time on weak machines; use WebGPU (Chrome/Edge) or pick `base`.
-- Auto-detect chooses between English and Turkish only; for a lecture in another language pick it explicitly.
-- Lectures and audio are stored per browser profile; clearing site data removes them (download the Markdown to keep a copy). Cloud sync is planned.
-- Recording is cut into ~20 s standalone files, so a few milliseconds of audio can be lost at each cut. Very long uploads are decoded in memory at once (about 460 MB per hour of audio).
-- Timestamps have ~20 s granularity (one segment per chunk).
+[OpenAI Whisper](https://github.com/openai/whisper) · [transformers.js](https://huggingface.co/docs/transformers.js) ·
+[Ollama](https://ollama.com) · [Next.js](https://nextjs.org) · [shadcn/ui](https://ui.shadcn.com)
+
+## License
+
+[MIT](LICENSE)

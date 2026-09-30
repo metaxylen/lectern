@@ -3,7 +3,7 @@ import { expect, makeLecture, seedLectures, test } from "./fixtures";
 test.describe("first visit", () => {
   test("renders the recorder, setup and empty history", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "stt", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lectern", level: 1 })).toBeVisible();
     await expect(page.getByRole("button", { name: "Record" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Upload audio" })).toBeEnabled();
     await expect(page.getByText("Nothing saved yet")).toBeVisible();
@@ -122,6 +122,6 @@ test.describe("routing and errors", () => {
     expect(res?.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
     await page.getByRole("link", { name: "Back to the note-taker" }).click();
-    await expect(page.getByRole("heading", { name: "stt", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lectern", level: 1 })).toBeVisible();
   });
 });

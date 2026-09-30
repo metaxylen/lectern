@@ -1,14 +1,40 @@
 {
-  "name": "stt",
-  "version": "0.1.0",
+  "name": "lectern",
+  "version": "0.3.0",
   "private": true,
+  "description": "Local-first lecture transcription and study notes: record or upload, get a timestamped transcript, chapters, exam notes and flashcards. Mixed English and Turkish.",
+  "license": "MIT",
+  "homepage": "https://github.com/metaxylen/lectern#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metaxylen/lectern.git"
+  },
+  "bugs": {
+    "url": "https://github.com/metaxylen/lectern/issues"
+  },
+  "keywords": [
+    "speech-to-text",
+    "whisper",
+    "transcription",
+    "lecture",
+    "notes",
+    "study",
+    "ollama",
+    "nextjs",
+    "local-first",
+    "turkish",
+    "webgpu"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev -p 47231 -H 0.0.0.0",
     "build": "next build",
     "start": "next start -p 47231 -H 0.0.0.0",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
@@ -50,8 +76,5 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.2"
-  },
-  "engines": {
-    "node": ">=22"
   }
 }

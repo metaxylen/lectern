@@ -77,6 +77,8 @@ export type SeedSession = {
   title: string;
   status: "recording" | "complete";
   updatedAt?: number;
+  /** Length of each seeded audio file. Use the real length when a test seeks inside it. */
+  wavSeconds?: number;
   chunks: {
     index: number;
     status: "pending" | "done" | "failed" | "silent";
@@ -130,6 +132,6 @@ export async function seedAudioSession(page: Page, seed: SeedSession) {
         tx.oncomplete = () => db.close();
       };
     },
-    { seed, wav: tinyWavBytes() },
+    { seed, wav: tinyWavBytes(seed.wavSeconds ?? 1) },
   );
 }

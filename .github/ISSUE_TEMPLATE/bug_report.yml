@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        [
+          Recording,
+          Audio source / system audio,
+          Live transcript,
+          Transcription,
+          Notes quality,
+          Storage / recovery,
+          UI,
+          Other,
+        ]
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 140 on macOS 27
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Whisper model and notes engine
+      description: For example "Whisper small, Ollama gemma4:12b" (shown above the notes)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or screenshot
+      description: Do not attach private audio or transcripts.

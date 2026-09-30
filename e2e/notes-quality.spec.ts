@@ -39,6 +39,7 @@ test.describe("rich notes", () => {
       id: "rich",
       title: "Operating Systems 101",
       status: "complete",
+      wavSeconds: 40,
       chunks: [{ index: 0, status: "done", segments: SEGMENTS, durationSec: 40 }],
     });
     await page.goto("/");
