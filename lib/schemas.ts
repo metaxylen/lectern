@@ -7,6 +7,11 @@ export const NotesSchema = z.object({
   definitions: z.array(z.object({ term: z.string(), definition: z.string() })),
   examQuestions: z.array(z.object({ question: z.string(), answer: z.string() })),
   glossary: z.array(z.object({ term: z.string(), turkish: z.string() })).optional(),
+  sections: z
+    .array(z.object({ title: z.string(), summary: z.string(), start: z.number().optional() }))
+    .optional(),
+  flashcards: z.array(z.object({ front: z.string(), back: z.string() })).optional(),
+  examHints: z.array(z.string()).optional(),
 });
 
 export const SegmentSchema = z.object({
@@ -30,6 +35,7 @@ export const LectureSchema = z.object({
   durationSec: z.number().optional(),
   segments: z.array(SegmentSchema).optional(),
   hasAudio: z.boolean().optional(),
+  context: z.string().optional(),
 });
 
 /** Keep every well-formed lecture from untrusted storage and drop the rest. */

@@ -6,17 +6,31 @@ import { apiError } from "@/lib/server/api";
 import { getEnv } from "@/lib/server/env";
 import { generateNotes } from "@/lib/server/notes";
 import { clientKey, createRateLimiter, type RateLimiter } from "@/lib/server/rate-limit";
+import type { NotesEngineChoice, NotesResult } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
 const LANGUAGE_CODES = LANGUAGES.map((l) => l.code) as [string, ...string[]];
 
+const SegmentInput = z.object({
+  start: z.number().finite().nonnegative(),
+  end: z.number().finite().nonnegative(),
+  text: z.string(),
+  language: z.string().max(12).optional(),
+});
+
 const BodySchema = z.object({
   transcript: z.string().trim().min(1, "Transcript is empty"),
+  /** Optional timestamped segments; enables chapters that link to the audio. */
+  segments: z.array(SegmentInput).max(10_000).optional(),
+  /** Optional hints from the student: course, topic, spellings. */
+  context: z.string().trim().max(800).optional(),
   language: z.enum(LANGUAGE_CODES).default("en"),
   glossary: z.boolean().default(false),
   engine: z.enum(["auto", "ollama", "gemini", "offline"]).default("auto"),
+  /** Respond with newline-delimited JSON progress events followed by the result. */
+  stream: z.boolean().default(false),
 });
 
 let limiter: RateLimiter | null = null;
@@ -48,8 +62,9 @@ export async function POST(request: Request) {
     });
   }
 
-  // JSON overhead and multi-byte characters mean bytes can exceed chars; allow generous headroom.
-  const maxBytes = env.NOTES_MAX_TRANSCRIPT_CHARS * 4 + 1024;
+  // JSON overhead and multi-byte characters mean bytes can exceed chars; allow generous headroom
+  // (segments repeat the transcript text, hence the factor).
+  const maxBytes = env.NOTES_MAX_TRANSCRIPT_CHARS * 8 + 4096;
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
     return apiError(413, "payload_too_large", "The transcript is too long to process.");
@@ -66,7 +81,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return apiError(400, "invalid_request", parsed.error.issues[0]?.message ?? "Invalid request");
   }
-  const { transcript, language, glossary, engine } = parsed.data;
+  const { transcript, segments, context, language, glossary, engine, stream } = parsed.data;
   if (transcript.length > env.NOTES_MAX_TRANSCRIPT_CHARS) {
     return apiError(
       413,
@@ -75,15 +90,62 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    const result = await generateNotes(transcript, language, engine, glossary);
-    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch (err) {
-    reportError(err, { route: "/api/notes", engine });
-    return apiError(
-      502,
-      "engine_failed",
-      err instanceof Error ? err.message : "Notes generation failed",
-    );
+  const input = { transcript, segments, context, language, glossary };
+  const choice = engine as NotesEngineChoice;
+  // If the browser goes away (user navigated off, pressed cancel), stop paying for model time.
+  const signal = request.signal;
+
+  if (!stream) {
+    try {
+      const result = await generateNotes(input, choice, { signal });
+      return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+    } catch (err) {
+      reportError(err, { route: "/api/notes", engine });
+      return apiError(
+        502,
+        "engine_failed",
+        err instanceof Error ? err.message : "Notes generation failed",
+      );
+    }
   }
+
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+        } catch {
+          // The client disconnected; nothing left to tell.
+        }
+      };
+      try {
+        const result: NotesResult = await generateNotes(input, choice, {
+          signal,
+          onProgress: (p) => send({ type: "progress", ...p }),
+        });
+        send({ type: "result", result });
+      } catch (err) {
+        if (!signal.aborted) reportError(err, { route: "/api/notes", engine });
+        send({
+          type: "error",
+          code: "engine_failed",
+          error: err instanceof Error ? err.message : "Notes generation failed",
+        });
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      }
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

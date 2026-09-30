@@ -108,3 +108,57 @@ describe("POST /api/notes", () => {
     expect(await res.json()).toMatchObject({ code: "misconfigured" });
   });
 });
+
+describe("POST /api/notes: segments, context and streaming", () => {
+  const segments = [
+    { start: 0, end: 20, text: "A thread is a unit of execution." },
+    { start: 20, end: 40, text: "Threads share memory with their process." },
+    { start: 40, end: 60, text: "Bunu vizede mutlaka soracağım, iyi öğrenin." },
+  ];
+
+  it("accepts timestamped segments and hints, returning offline chapters' fields", async () => {
+    const { POST } = await loadRoute();
+    const res = await POST(
+      post({ transcript: TRANSCRIPT, segments, context: "OS course", engine: "offline" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.engine).toBe("offline");
+    expect(body.notes.examHints?.length).toBeGreaterThan(0);
+    expect(body.warnings).toEqual([]);
+  });
+
+  it("rejects malformed segments and over-long hints", async () => {
+    const { POST } = await loadRoute();
+    const bad = await POST(
+      post({ transcript: TRANSCRIPT, segments: [{ start: -1, end: 2, text: "x" }] }),
+    );
+    expect(bad.status).toBe(400);
+    const long = await POST(post({ transcript: TRANSCRIPT, context: "x".repeat(801) }));
+    expect(long.status).toBe(400);
+  });
+
+  it("streams progress events then the result as newline-delimited JSON", async () => {
+    const { POST } = await loadRoute();
+    const res = await POST(post({ transcript: TRANSCRIPT, engine: "offline", stream: true }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const lines = (await res.text())
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(lines.at(-1)).toMatchObject({ type: "result", result: { engine: "offline" } });
+  });
+
+  it("streams an error event when a forced engine fails", async () => {
+    vi.stubEnv("OLLAMA_HOST", "http://127.0.0.1:9");
+    resetEnvCache();
+    const { POST } = await loadRoute();
+    const res = await POST(post({ transcript: TRANSCRIPT, engine: "gemini", stream: true }));
+    const lines = (await res.text())
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(lines.at(-1)).toMatchObject({ type: "error", code: "engine_failed" });
+  });
+});

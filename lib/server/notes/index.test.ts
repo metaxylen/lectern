@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetEnvCache } from "../env";
+import type { LlmClient } from "./llm";
 import { generateNotes, getEngineStatus } from "./index";
 
 const TRANSCRIPT =
   "A thread is a unit of execution. Threads share memory. This is important for the exam. Processes do not share memory.";
+const input = { transcript: TRANSCRIPT, language: "en", glossary: false };
 
 const modelNotes = {
   title: "Model title",
@@ -11,6 +13,8 @@ const modelNotes = {
   keyPoints: ["k1"],
   definitions: [],
   examQuestions: [],
+  examHints: [],
+  flashcards: [],
 };
 
 const ok = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body)));
@@ -21,6 +25,16 @@ function routeFetch(handlers: Record<string, () => Promise<Response>>) {
     for (const [needle, handler] of Object.entries(handlers))
       if (url.includes(needle)) return handler();
     return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+}
+
+function fakeClient(engine: "ollama" | "gemini", reply: () => string): () => Promise<LlmClient> {
+  return async () => ({
+    engine,
+    model: `${engine}-fake`,
+    singlePassChars: 10_000,
+    sectionChars: 5000,
+    generateJson: async () => reply(),
   });
 }
 
@@ -38,87 +52,112 @@ afterEach(() => {
 });
 
 describe("generateNotes", () => {
-  it("uses Ollama first when it is reachable", async () => {
-    vi.stubGlobal(
-      "fetch",
-      routeFetch({
-        "/api/tags": () => ok({ models: [{ name: "llama3:8b" }, { name: "nomic-embed-text" }] }),
-        "/api/chat": () => ok({ message: { content: JSON.stringify(modelNotes) } }),
-      }),
-    );
-    const r = await generateNotes(TRANSCRIPT, "en", "auto");
-    expect(r).toMatchObject({ engine: "ollama", model: "llama3:8b", fallbackReasons: [] });
-    expect(r.notes.title).toBe("Model title");
-  });
-
-  it("falls back through Gemini to offline, recording why", async () => {
-    vi.stubGlobal("fetch", routeFetch({ "/api/tags": () => Promise.reject(new Error("refused")) }));
-    const r = await generateNotes(TRANSCRIPT, "en", "auto");
-    expect(r.engine).toBe("offline");
-    expect(r.fallbackReasons).toHaveLength(2);
-    expect(r.fallbackReasons[0]).toMatch(/^ollama: Ollama not reachable/);
-    expect(r.fallbackReasons[1]).toBe("gemini: GEMINI_API_KEY is not set");
-  });
-
-  it("uses Gemini when Ollama is down and a key is configured", async () => {
-    vi.stubEnv("GEMINI_API_KEY", "secret");
-    resetEnvCache();
-    const fetchMock = routeFetch({
-      "/api/tags": () => Promise.reject(new Error("refused")),
-      "generativelanguage.googleapis.com": () =>
-        ok({ candidates: [{ content: { parts: [{ text: JSON.stringify(modelNotes) }] } }] }),
+  it("uses Ollama first when it works", async () => {
+    const r = await generateNotes(input, "auto", {
+      clients: { ollama: fakeClient("ollama", () => JSON.stringify(modelNotes)) },
     });
-    vi.stubGlobal("fetch", fetchMock);
-    const r = await generateNotes(TRANSCRIPT, "en", "auto");
+    expect(r).toMatchObject({ engine: "ollama", model: "ollama-fake", fallbackReasons: [] });
+    expect(r.notes.title).toBe("Model title");
+    expect(r.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("falls through Ollama and Gemini to offline, recording why", async () => {
+    const r = await generateNotes(input, "auto", {
+      clients: {
+        ollama: async () => {
+          throw new Error("Ollama not reachable");
+        },
+        gemini: async () => {
+          throw new Error("GEMINI_API_KEY is not set");
+        },
+      },
+    });
+    expect(r.engine).toBe("offline");
+    expect(r.fallbackReasons).toEqual([
+      "ollama: Ollama not reachable",
+      "gemini: GEMINI_API_KEY is not set",
+    ]);
+  });
+
+  it("uses Gemini when Ollama is down", async () => {
+    const r = await generateNotes(input, "auto", {
+      clients: {
+        ollama: async () => {
+          throw new Error("down");
+        },
+        gemini: fakeClient("gemini", () => JSON.stringify(modelNotes)),
+      },
+    });
     expect(r.engine).toBe("gemini");
-    const geminiCall = fetchMock.mock.calls.find(([u]) => String(u).includes("googleapis"));
-    expect((geminiCall?.[1] as RequestInit).headers).toMatchObject({ "x-goog-api-key": "secret" });
-    expect(String(geminiCall?.[0])).not.toContain("secret");
+    expect(r.model).toBe("gemini-fake");
   });
 
   it("does not silently fall back when an engine is forced", async () => {
-    vi.stubGlobal("fetch", routeFetch({ "/api/tags": () => Promise.reject(new Error("refused")) }));
-    await expect(generateNotes(TRANSCRIPT, "en", "ollama")).rejects.toThrow(/Ollama not reachable/);
-    await expect(generateNotes(TRANSCRIPT, "en", "gemini")).rejects.toThrow(/GEMINI_API_KEY/);
+    const boom = async () => {
+      throw new Error("engine unavailable");
+    };
+    await expect(generateNotes(input, "ollama", { clients: { ollama: boom } })).rejects.toThrow(
+      "engine unavailable",
+    );
+    await expect(generateNotes(input, "gemini", { clients: { gemini: boom } })).rejects.toThrow(
+      "engine unavailable",
+    );
   });
 
-  it("forcing offline never touches the network", async () => {
+  it("forcing offline never touches a model or the network", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const r = await generateNotes(TRANSCRIPT, "en", "offline");
+    const factory = vi.fn();
+    const r = await generateNotes(input, "offline", {
+      clients: { ollama: factory, gemini: factory },
+    });
     expect(r.engine).toBe("offline");
+    expect(factory).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(r.notes.keyPoints.length).toBeGreaterThan(0);
   });
 
-  it("falls back when a model returns unusable JSON", async () => {
-    vi.stubGlobal(
-      "fetch",
-      routeFetch({
-        "/api/tags": () => ok({ models: [{ name: "qwen2.5:7b" }] }),
-        "/api/chat": () => ok({ message: { content: '{"title":"only title"}' } }),
-      }),
-    );
-    const r = await generateNotes(TRANSCRIPT, "en", "auto");
+  it("falls back when a model keeps returning unusable JSON", async () => {
+    const r = await generateNotes(input, "auto", {
+      clients: { ollama: fakeClient("ollama", () => '{"title":"only title"}') },
+    });
     expect(r.engine).toBe("offline");
     expect(r.fallbackReasons[0]).toMatch(/incomplete notes JSON/);
+  });
+
+  it("reports progress from the pipeline", async () => {
+    const messages: string[] = [];
+    await generateNotes(input, "auto", {
+      clients: { ollama: fakeClient("ollama", () => JSON.stringify(modelNotes)) },
+      onProgress: (p) => messages.push(p.message),
+    });
+    expect(messages[0]).toBe("Connecting to Ollama");
+    expect(messages).toContain("Writing notes");
+  });
+
+  it("stops when the request is cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(generateNotes(input, "auto", { signal: controller.signal })).rejects.toThrow();
   });
 });
 
 describe("getEngineStatus", () => {
-  it("reports reachability, selected model and gemini config", async () => {
+  it("reports reachability, the preferred model and gemini config", async () => {
     vi.stubEnv("GEMINI_API_KEY", "k");
     resetEnvCache();
     vi.stubGlobal(
       "fetch",
       routeFetch({
-        "/api/tags": () => ok({ models: [{ name: "mistral:7b" }, { name: "qwen2.5:3b" }] }),
+        "/api/tags": () =>
+          ok({ models: [{ name: "mistral:7b" }, { name: "qwen2.5:3b" }, { name: "qwen2.5:14b" }] }),
       }),
     );
     const s = await getEngineStatus();
     expect(s.ollama).toMatchObject({
       reachable: true,
       host: "http://ollama.test",
-      selected: "qwen2.5:3b",
+      selected: "qwen2.5:14b", // same family, larger model wins
     });
     expect(s.gemini).toEqual({ configured: true, model: "gemini-flash-latest" });
   });

@@ -41,7 +41,8 @@ import { shortModelName } from "@/lib/stt/models";
 import { CancelledError, transcribeSamples } from "@/lib/stt/pipeline";
 import type { EngineStatus, Lecture, NotesEngineChoice, NotesResult, Segment } from "@/lib/types";
 
-export type NotesMeta = Pick<NotesResult, "engine" | "model" | "fallbackReasons">;
+export type NotesMeta = Pick<NotesResult, "engine" | "model" | "fallbackReasons"> &
+  Partial<Pick<NotesResult, "warnings" | "elapsedMs">>;
 
 /** What is stored on this device for the open lecture. */
 export type AudioInfo = { bytes: number; chunks: number; incomplete: number };
@@ -90,6 +91,8 @@ export function useLectureSession() {
   const [pending, setPending] = useState(0);
   const [partsProgress, setPartsProgress] = useState<{ done: number; total: number } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [notesProgress, setNotesProgress] = useState<string | null>(null);
+  const [context, setContext] = useState("");
   const [finalizing, setFinalizing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState<AudioSession[]>([]);
@@ -105,15 +108,16 @@ export function useLectureSession() {
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentRef = useRef<Lecture | null>(null);
   const cancelRef = useRef(false);
+  const notesAbortRef = useRef<AbortController | null>(null);
   const failedRef = useRef(0);
   const persistOkRef = useRef(true);
   const hasSessionRef = useRef(false);
   /** Timeline position (seconds) where the next live chunk begins. */
   const liveCursorRef = useRef({ t: 0 });
-  const settings = useRef({ audioLang, notesLang, engineChoice, modelId });
+  const settings = useRef({ audioLang, notesLang, engineChoice, modelId, context });
 
   useEffect(() => {
-    settings.current = { audioLang, notesLang, engineChoice, modelId };
+    settings.current = { audioLang, notesLang, engineChoice, modelId, context };
     whisperRef.current = whisper;
   });
 
@@ -276,9 +280,25 @@ export function useLectureSession() {
     async (lecture: Lecture) => {
       if (!lecture.transcript.trim()) return;
       setGenerating(true);
+      setNotesProgress("Preparing");
+      const abort = new AbortController();
+      notesAbortRef.current = abort;
       try {
-        const { notesLang: nl, engineChoice: engine } = settings.current;
-        const result = await requestNotes(lecture.transcript, nl, engine);
+        const { notesLang: nl, engineChoice: engine, context: hints } = settings.current;
+        const result = await requestNotes(
+          {
+            transcript: lecture.transcript,
+            segments: lecture.segments,
+            context: hints,
+            notesLanguage: nl,
+            engine,
+          },
+          {
+            signal: abort.signal,
+            onProgress: (message, done, total) =>
+              setNotesProgress(total ? `${message} (${done ?? 0}/${total})` : message),
+          },
+        );
         const parsed = parseNotesLanguage(nl);
         const updated: Lecture = {
           ...lecture,
@@ -287,6 +307,7 @@ export function useLectureSession() {
           notesLanguage: parsed.language,
           notesGlossary: parsed.glossary,
           notesEngine: result.engine,
+          context: hints?.trim() || undefined,
         };
         persist(updated);
         if (currentRef.current?.id === updated.id) {
@@ -295,12 +316,17 @@ export function useLectureSession() {
             engine: result.engine,
             model: result.model,
             fallbackReasons: result.fallbackReasons,
+            warnings: result.warnings,
+            elapsedMs: result.elapsedMs,
           });
         }
         toast.success("Notes are ready");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not generate notes");
+        if (abort.signal.aborted) toast("Notes generation cancelled");
+        else toast.error(err instanceof Error ? err.message : "Could not generate notes");
       } finally {
+        notesAbortRef.current = null;
+        setNotesProgress(null);
         setGenerating(false);
       }
     },
@@ -608,6 +634,8 @@ export function useLectureSession() {
     toast("Transcript replaced. Regenerate notes to use the new text.");
   }, [patchCurrent, resumeStored, setSegments]);
 
+  const cancelNotes = useCallback(() => notesAbortRef.current?.abort(), []);
+
   const cancel = useCallback(() => {
     cancelRef.current = true;
     whisper.cancel();
@@ -667,6 +695,7 @@ export function useLectureSession() {
       setLecture(l);
       setNotesMeta(l.notesEngine ? { engine: l.notesEngine, fallbackReasons: [] } : null);
       setNotice(null);
+      setContext(l.context ?? "");
       void refreshAudioInfo(l);
     },
     [busy, recorder.recording, refreshAudioInfo, setLecture],
@@ -763,6 +792,9 @@ export function useLectureSession() {
     // status
     busy,
     generating,
+    notesProgress,
+    context,
+    setContext,
     pending,
     partsProgress,
     // engines
@@ -780,6 +812,7 @@ export function useLectureSession() {
     copyMarkdown,
     downloadMarkdown,
     cancel,
+    cancelNotes,
     retryFailed,
     retranscribe,
     recoverSession,
