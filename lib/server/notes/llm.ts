@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { NotesEngine } from "../../types";
 import { getEnv } from "../env";
 
@@ -16,31 +17,62 @@ export type LlmClient = {
   ) => Promise<string>;
 };
 
-const PREFERRED_MODELS = ["qwen2.5", "qwen3", "gemma3", "llama3", "mistral", "phi"];
+/** Newest, strongest multilingual families first. Order matters: the first family installed wins. */
+const PREFERRED_MODELS = [
+  "gemma4",
+  "qwen3.8",
+  "qwen3.6",
+  "qwen3",
+  "gemma3",
+  "qwen2.5",
+  "llama3",
+  "mistral",
+  "phi",
+];
 
-export async function listOllamaModels(): Promise<string[] | null> {
+/** On Apple silicon the GPU may use roughly 2/3 of RAM; leave room for context and the system. */
+const MODEL_MEMORY_SHARE = 0.6;
+
+export type OllamaModel = { name: string; size: number };
+
+export async function listOllamaModels(): Promise<OllamaModel[] | null> {
   try {
     const res = await fetch(`${getEnv().OLLAMA_HOST}/api/tags`, {
       signal: AbortSignal.timeout(1500),
       cache: "no-store",
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { models?: { name: string }[] };
-    return (data.models ?? []).map((m) => m.name).filter((n) => !/embed/i.test(n));
+    const data = (await res.json()) as { models?: { name: string; size?: number }[] };
+    return (data.models ?? [])
+      .filter((m) => !/embed/i.test(m.name))
+      .map((m) => ({ name: m.name, size: m.size ?? 0 }));
   } catch {
     return null;
   }
 }
 
-/** Prefer a forced model, then known-good families; within a family prefer the larger model. */
-export function pickOllamaModel(models: string[], forced = getEnv().OLLAMA_MODEL): string | null {
+/**
+ * Pick the model to use. A forced model always wins. Otherwise walk the preferred families in order
+ * and take the largest model of the first family that still fits in memory, because a model that is
+ * too big for the GPU runs many times slower on the CPU. If none fits, the smallest one is used.
+ */
+export function pickOllamaModel(
+  models: OllamaModel[],
+  forced = getEnv().OLLAMA_MODEL,
+  memoryBytes = os.totalmem(),
+): string | null {
   if (forced) return forced;
-  const size = (name: string) => Number(name.match(/(\d+(?:\.\d+)?)b\b/i)?.[1] ?? 0);
+  const budget = memoryBytes * MODEL_MEMORY_SHARE;
+  const bySize = (a: OllamaModel, b: OllamaModel) => b.size - a.size;
   for (const family of PREFERRED_MODELS) {
-    const hits = models.filter((m) => m.toLowerCase().startsWith(family));
-    if (hits.length) return hits.sort((a, b) => size(b) - size(a))[0];
+    const hits = models.filter(
+      (m) => m.name.toLowerCase().startsWith(`${family}:`) || m.name.toLowerCase() === family,
+    );
+    if (!hits.length) continue;
+    const fitting = hits.filter((m) => m.size === 0 || m.size <= budget).sort(bySize);
+    return (fitting[0] ?? hits.sort(bySize).at(-1)!).name;
   }
-  return models[0] ?? null;
+  return models[0]?.name ?? null;
 }
 
 export async function createOllamaClient(): Promise<LlmClient> {
@@ -65,7 +97,9 @@ export async function createOllamaClient(): Promise<LlmClient> {
           model,
           stream: false,
           format: opts?.schema ?? "json",
-          keep_alive: "15m",
+          keep_alive: "10m",
+          // Reasoning models would otherwise spend minutes "thinking" before the JSON.
+          think: false,
           // A fixed seed keeps results reproducible for the same input (and makes evals comparable).
           options: { temperature: 0.2, num_ctx: 16_384, num_predict: 4096, seed: 42 },
           messages: [{ role: "user", content: prompt }],

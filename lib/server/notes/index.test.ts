@@ -150,7 +150,13 @@ describe("getEngineStatus", () => {
       "fetch",
       routeFetch({
         "/api/tags": () =>
-          ok({ models: [{ name: "mistral:7b" }, { name: "qwen2.5:3b" }, { name: "qwen2.5:14b" }] }),
+          ok({
+            models: [
+              { name: "mistral:7b", size: 4e9 },
+              { name: "qwen2.5:3b", size: 2e9 },
+              { name: "qwen2.5:14b", size: 9e9 },
+            ],
+          }),
       }),
     );
     const s = await getEngineStatus();

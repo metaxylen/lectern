@@ -24,7 +24,7 @@ export async function getEngineStatus(): Promise<EngineStatus> {
     ollama: {
       reachable: models !== null,
       host: env.OLLAMA_HOST,
-      models: models ?? [],
+      models: (models ?? []).map((m) => m.name),
       selected: models ? pickOllamaModel(models) : null,
     },
     gemini: { configured: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL },

@@ -71,9 +71,7 @@ parentheses) and a few other languages.
 Engines are chosen automatically in this order (or force one in the _Notes engine_ dropdown):
 
 1. **Ollama** — if a local [Ollama](https://ollama.com) server is reachable at `OLLAMA_HOST` (default
-   `http://127.0.0.1:11434`). Uses `OLLAMA_MODEL`, otherwise the best installed model (families qwen2.5, qwen3,
-   gemma3, llama3, mistral, phi; within a family the largest). Quality rises clearly with model size:
-   `ollama pull qwen2.5:14b` is a good choice on a 16 GB+ machine, `qwen2.5:7b` on smaller ones.
+   `http://127.0.0.1:11434`). Uses `OLLAMA_MODEL`, otherwise the best installed model: families are tried newest first (gemma4, qwen3.8, qwen3.6, qwen3, gemma3, qwen2.5, llama3, mistral, phi) and within a family the largest model that fits in about 60% of this machine's RAM is chosen, because a model that does not fit the GPU runs many times slower. On a 24 GB Mac `ollama pull gemma4:12b` (8 GB) is a good default. Compare models on your own lectures with `npm run eval`.
 2. **Gemini free tier** — only if you set `GEMINI_API_KEY` (get one free at
    [aistudio.google.com/apikey](https://aistudio.google.com/apikey)); model `GEMINI_MODEL` (default `gemini-flash-latest`).
    The transcript is sent to Google when this is used.
