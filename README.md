@@ -122,7 +122,7 @@ input device. Step by step in [docs/audio-sources.md](docs/audio-sources.md). On
 share system audio directly.
 
 <p align="center">
-  <img src="docs/images/audio-sources.png" alt="Audio source picker with tab and microphone mixing and the live transcript option" width="640" />
+  <img src="docs/images/new-session.png" alt="New session card: audio source tiles, context hints, options summary and the record and upload actions" width="700" />
 </p>
 
 ## Choosing a model

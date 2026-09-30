@@ -1,10 +1,7 @@
 export const WHISPER_MODELS = [
-  { id: "onnx-community/whisper-tiny", label: "Tiny (~40 MB, fastest, weakest)" },
-  { id: "onnx-community/whisper-base", label: "Base (~80 MB, default without WebGPU)" },
-  {
-    id: "onnx-community/whisper-small",
-    label: "Small (~250 MB, default with WebGPU, best accuracy)",
-  },
+  { id: "onnx-community/whisper-tiny", label: "Tiny · ~40 MB · fastest" },
+  { id: "onnx-community/whisper-base", label: "Base · ~80 MB · balanced" },
+  { id: "onnx-community/whisper-small", label: "Small · ~250 MB · most accurate" },
 ] as const;
 
 export const WHISPER_MODEL_IDS: string[] = WHISPER_MODELS.map((m) => m.id);

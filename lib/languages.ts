@@ -21,7 +21,7 @@ export type Option = { value: string; label: string };
 const OTHERS = LANGUAGES.filter((l) => l.code !== "en" && l.code !== "tr");
 
 export const SPEECH_OPTIONS: Option[] = [
-  { value: "auto", label: "Auto-detect per chunk (English + Turkish)" },
+  { value: "auto", label: "Auto-detect (English + Turkish)" },
   { value: "en", label: "English (primary)" },
   { value: "tr", label: "Türkçe" },
   ...OTHERS.map((l) => ({ value: l.code, label: l.label })),

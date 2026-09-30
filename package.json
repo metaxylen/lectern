@@ -1,6 +1,6 @@
 {
   "name": "lectern",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local-first lecture transcription and study notes: record or upload, get a timestamped transcript, chapters, exam notes and flashcards. Mixed English and Turkish.",
   "license": "MIT",

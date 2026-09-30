@@ -1,11 +1,10 @@
 "use client";
 
 import { HistoryList } from "@/components/history-list";
+import { CaptureCard } from "@/components/lecture/capture-card";
 import { AppHeader } from "@/components/lecture/app-header";
 import { NotesSection } from "@/components/lecture/notes-section";
-import { RecorderPanel } from "@/components/lecture/recorder-panel";
 import { RecoveryBanner } from "@/components/lecture/recovery-banner";
-import { SessionSetup } from "@/components/lecture/session-setup";
 import { StoragePanel } from "@/components/lecture/storage-panel";
 import { TranscriptPanel } from "@/components/lecture/transcript-panel";
 import { useLectureSession } from "@/hooks/use-lecture-session";
@@ -20,8 +19,7 @@ export function LectureApp() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <main className="flex min-w-0 flex-col gap-6">
-          <SessionSetup session={session} />
-          <RecorderPanel session={session} />
+          <CaptureCard session={session} />
           <TranscriptPanel session={session} />
           <NotesSection session={session} />
         </main>

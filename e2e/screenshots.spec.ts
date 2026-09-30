@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { makeLecture, seedAudioSession, seedLectures } from "./fixtures";
+import { chooseSource, makeLecture, openOptions, seedAudioSession, seedLectures } from "./fixtures";
 
 // Regenerates the README screenshots from seeded, realistic data:
 //   SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
@@ -218,13 +218,12 @@ test("transcript with audio", async ({ page }) => {
   await card.screenshot({ path: path.join(OUT, "transcript.png") });
 });
 
-test("audio sources", async ({ page }) => {
+test("new session", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Audio source").click();
-  await page.getByRole("option", { name: /^Tab audio \+ my microphone/ }).click();
-  await page.getByRole("button", { name: "Record" }).scrollIntoViewIfNeeded();
-  const panel = page
-    .getByLabel("Audio source")
-    .locator("xpath=ancestor::*[contains(@data-slot,'card')][1]");
-  await panel.screenshot({ path: path.join(OUT, "audio-sources.png") });
+  await chooseSource(page, /^Tab audio \+ microphone/);
+  await openOptions(page);
+  await expect(page.getByLabel("Notes engine")).toBeVisible();
+  await page.waitForTimeout(300);
+  const card = page.locator('[data-slot="card"]').filter({ hasText: "New session" }).first();
+  await card.screenshot({ path: path.join(OUT, "new-session.png") });
 });

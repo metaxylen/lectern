@@ -1,35 +1,46 @@
 import { test as plainTest } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { chooseSource, expect, openOptions, test } from "./fixtures";
 
 test.describe("audio source", () => {
-  test("offers microphone, tab audio and tab + microphone", async ({ page }) => {
+  test("offers microphone, tab audio and tab + microphone as tiles", async ({ page }) => {
     await page.goto("/");
-    await page.getByLabel("Audio source").click();
-    await expect(page.getByRole("option", { name: "Microphone", exact: true })).toBeVisible();
-    await expect(page.getByRole("option", { name: /Browser tab or screen audio/ })).toBeVisible();
-    await expect(page.getByRole("option", { name: /Tab audio \+ my microphone/ })).toBeVisible();
+    const group = page.getByRole("radiogroup", { name: "Audio source" });
+    await expect(group.getByRole("radio", { name: /^Microphone/ })).toBeChecked();
+    await expect(group.getByRole("radio", { name: /^Tab or screen audio/ })).toBeEnabled();
+    await expect(group.getByRole("radio", { name: /^Tab audio \+ microphone/ })).toBeEnabled();
   });
 
   test("explains how to capture tab and system audio", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("Also share tab audio")).toHaveCount(0);
-    await page.getByLabel("Audio source").click();
-    await page.getByRole("option", { name: /^Browser tab or screen audio/ }).click();
+    await chooseSource(page, /^Tab or screen audio/);
     await expect(page.getByText("Also share tab audio")).toBeVisible();
     await expect(page.getByText(/BlackHole/)).toBeVisible();
     // A microphone device only matters for microphone sources.
     await expect(page.getByLabel("Microphone", { exact: true })).toHaveCount(0);
-    await page.getByLabel("Audio source").click();
-    await page.getByRole("option", { name: /Tab audio \+ my microphone/ }).click();
+    await chooseSource(page, /^Tab audio \+ microphone/);
     await expect(page.getByLabel("Microphone", { exact: true })).toBeVisible();
   });
 
   test("live transcript is on by default and can be turned off", async ({ page }) => {
     await page.goto("/");
-    const live = page.getByRole("checkbox", { name: /Live transcript/ });
+    await openOptions(page);
+    const live = page.getByRole("switch", { name: "Live transcript" });
     await expect(live).toBeChecked();
-    await live.uncheck();
+    await live.click();
     await expect(live).not.toBeChecked();
+    await expect(page.getByLabel("Current options")).not.toContainText("Live");
+  });
+
+  test("the options summary reflects the choices", async ({ page }) => {
+    await page.goto("/");
+    const summary = page.getByLabel("Current options");
+    await expect(summary).toContainText("Auto EN + TR");
+    await expect(summary).toContainText("Notes: EN + TR glossary");
+    await openOptions(page);
+    await page.getByLabel("Lecture language (speech)").click();
+    await page.getByRole("option", { name: /^Türkçe/ }).click();
+    await expect(summary).toContainText("Türkçe");
   });
 
   test("sharing nothing is explained, not treated as a crash", async ({ page }) => {
@@ -42,8 +53,7 @@ test.describe("audio source", () => {
       };
     });
     await page.goto("/");
-    await page.getByLabel("Audio source").click();
-    await page.getByRole("option", { name: /^Browser tab or screen audio/ }).click();
+    await chooseSource(page, /^Tab or screen audio/);
     await page.getByRole("button", { name: "Record" }).click();
     await expect(page.getByText("Audio source problem")).toBeVisible();
     await expect(page.getByText(/Also share tab audio/).first()).toBeVisible();
@@ -57,8 +67,7 @@ test.describe("audio source", () => {
       };
     });
     await page.goto("/");
-    await page.getByLabel("Audio source").click();
-    await page.getByRole("option", { name: /^Browser tab or screen audio/ }).click();
+    await chooseSource(page, /^Tab or screen audio/);
     await page.getByRole("button", { name: "Record" }).click();
     await expect(page.getByRole("button", { name: "Record" })).toBeEnabled();
     await expect(page.getByText("Audio source problem")).toHaveCount(0);
@@ -88,8 +97,7 @@ test.describe("audio source", () => {
       });
       await page.route(/huggingface\.co|hf\.co|jsdelivr/, (route) => route.abort());
       await page.goto("/");
-      await page.getByLabel("Audio source").click();
-      await page.getByRole("option", { name: /^Browser tab or screen audio/ }).click();
+      await chooseSource(page, /^Tab or screen audio/);
       await page.getByRole("button", { name: "Record" }).click();
       await expect(page.getByRole("button", { name: /Stop & make notes/ })).toBeVisible();
       await expect(page.getByText(/Shared tab audio/).first()).toBeVisible();

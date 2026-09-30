@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { openOptions } from "./fixtures";
 
 // Opt-in: downloads the real Whisper tiny model (~40 MB) and transcribes synthesized speech.
 //   E2E_WHISPER=1 npm run test:e2e -- e2e/whisper.spec.ts        (macOS: uses `say` + `afconvert`)
@@ -24,6 +25,7 @@ test("uploads speech, transcribes it with timestamps and stores the audio", asyn
   );
   await page.goto("/");
   // Smallest model keeps the download short.
+  await openOptions(page);
   await page.getByLabel("Whisper model (local)").click();
   await page.getByRole("option", { name: /Tiny/ }).click();
 

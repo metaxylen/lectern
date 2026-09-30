@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, test } from "@playwright/test";
+import { openOptions } from "./fixtures";
 
 // Opt-in: downloads the real Whisper tiny model and "speaks" into a fake microphone.
 //   E2E_WHISPER=1 npm run test:e2e -- e2e/live.spec.ts        (macOS: uses `say` + `afconvert`)
@@ -40,6 +41,7 @@ test("live transcript shows words while recording, then the final transcript rep
   try {
     await page.goto("/");
     // Fix the language: this test is about the live mechanics, not language detection on a tiny model.
+    await openOptions(page);
     await page.getByLabel("Lecture language (speech)").click();
     await page.getByRole("option", { name: /^English/ }).click();
     await page.getByLabel("Whisper model (local)").click();

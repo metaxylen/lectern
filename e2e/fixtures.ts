@@ -135,3 +135,14 @@ export async function seedAudioSession(page: Page, seed: SeedSession) {
     { seed, wav: tinyWavBytes(seed.wavSeconds ?? 1) },
   );
 }
+
+/** Expand the collapsible "Session options" panel (idempotent). */
+export async function openOptions(page: Page) {
+  const toggle = page.getByRole("button", { name: /^Session options/ });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+}
+
+/** Pick an audio source tile by its title. */
+export async function chooseSource(page: Page, title: RegExp | string) {
+  await page.getByRole("radio", { name: title }).check({ force: true });
+}

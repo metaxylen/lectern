@@ -18,6 +18,7 @@ export function SimpleSelect({
   options,
   disabled,
   id,
+  hint,
 }: {
   label: string;
   value: string;
@@ -25,6 +26,8 @@ export function SimpleSelect({
   options: Option[];
   disabled?: boolean;
   id: string;
+  /** Short helper text under the field. */
+  hint?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
@@ -48,6 +51,7 @@ export function SimpleSelect({
           ))}
         </SelectContent>
       </Select>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

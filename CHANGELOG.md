@@ -2,6 +2,16 @@
 
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-09-30
+
+### Changed
+
+- **New session card redesigned** as one guided flow: source tiles (microphone, tab audio, tab + microphone), optional context
+  hints with a counter, collapsible options with a live summary of the current choices, and a prominent record action next to a
+  drag-and-drop upload area. While recording it becomes a status bar with the timer and source.
+- Brand colour applied across the interface; model and language labels shortened so they no longer truncate.
+- Options explain themselves (what "automatic" will use right now, what each setting does).
+
 ## [0.3.0] - 2026-09-30
 
 ### Added
