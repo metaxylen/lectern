@@ -5,7 +5,6 @@ import { HardDrive, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatBytes } from "@/components/lecture/audio-controls";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LectureSession } from "@/hooks/use-lecture-session";
 import { estimateStorage, type StorageEstimate } from "@/lib/audio-store";
 import { deleteCachedModel, listCachedModels, type CachedModel } from "@/lib/stt/model-cache";
@@ -43,13 +42,17 @@ export function StoragePanel({ session }: { session: LectureSession }) {
   };
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HardDrive className="size-4" /> On this device
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 text-sm">
+    <section
+      className="flex flex-col gap-2 border-t border-white/10 pt-4"
+      aria-labelledby="storage-heading"
+    >
+      <h2
+        id="storage-heading"
+        className="flex items-center gap-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        <HardDrive className="size-3.5" aria-hidden /> On this device
+      </h2>
+      <div className="flex flex-col gap-3 text-sm">
         {models.length === 0 ? (
           <p className="text-xs text-muted-foreground">No Whisper models downloaded yet.</p>
         ) : (
@@ -80,7 +83,7 @@ export function StoragePanel({ session }: { session: LectureSession }) {
             {formatBytes(estimate.quota)}.
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

@@ -24,13 +24,13 @@ export function CaptureActions({ session }: { session: LectureSession }) {
   if (recorder.recording) {
     return (
       <div
-        className="flex flex-wrap items-center gap-4 rounded-xl border border-red-500/30 bg-red-500/5 p-3"
+        className="flex flex-wrap items-center gap-4 rounded-xl border border-cta/40 bg-cta/10 p-3"
         role="status"
         aria-live="polite"
       >
         <span className="relative flex size-3">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
-          <span className="relative inline-flex size-3 rounded-full bg-red-500" />
+          <span className="motion-pulse absolute inline-flex size-full animate-ping rounded-full bg-cta opacity-75 motion-reduce:animate-none" />
+          <span className="relative inline-flex size-3 rounded-full bg-cta" />
         </span>
         <div className="flex flex-col">
           <span className="font-mono text-lg leading-none tabular-nums">
@@ -57,6 +57,7 @@ export function CaptureActions({ session }: { session: LectureSession }) {
     <div className="grid gap-3 sm:grid-cols-[auto_1fr]">
       <Button
         size="lg"
+        variant="cta"
         className="h-14 gap-2 px-7 text-base"
         onClick={session.startRecording}
         disabled={busy}
@@ -80,10 +81,10 @@ export function CaptureActions({ session }: { session: LectureSession }) {
           void upload(e.dataTransfer.files?.[0]);
         }}
         className={cn(
-          "flex h-14 items-center gap-3 rounded-xl border border-dashed px-4 text-left transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          "flex h-14 cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 text-left transition-colors duration-200 outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
           dragging
-            ? "border-primary bg-primary/5"
-            : "border-border hover:border-primary/50 hover:bg-muted/50",
+            ? "border-primary bg-primary/10"
+            : "border-white/15 hover:border-primary/50 hover:bg-white/6",
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >

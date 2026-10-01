@@ -37,10 +37,10 @@ only.
 
 ## Troubleshooting
 
-| Symptom                                     | Fix                                                                                               |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| "No audio was shared"                       | Re-share and tick **Also share tab audio**                                                        |
-| Microphone list shows only generic names    | Names appear after microphone permission was granted once                                         |
-| Silent recording with BlackHole             | The system output must be the Multi-Output Device                                                 |
-| Notes mention "Thank you" or repeat phrases | Silence was transcribed; raise the input level or trim the recording, then re-transcribe          |
-| Live text lags behind                       | The model is slower than real time on this machine; pick a smaller Whisper model or turn live off |
+| Symptom                                     | Fix                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| "No audio was shared"                       | Re-share and tick **Also share tab audio**                                                                                      |
+| Microphone list shows only generic names    | Names appear after microphone permission was granted once                                                                       |
+| Silent recording with BlackHole             | The system output must be the Multi-Output Device                                                                               |
+| Notes mention "Thank you" or repeat phrases | Silence was transcribed; raise the input level or trim the recording, then re-transcribe                                        |
+| Live text lags behind                       | The model is slower than real time on this machine; pick Turbo if it is installed, a smaller in-browser model, or turn live off |

@@ -3,6 +3,33 @@ export const WHISPER_SAMPLE_RATE = 16_000;
 // Short windows so a Turkish sentence inside an English lecture is language-detected on its own.
 export const CHUNK_SECONDS = Number(process.env.NEXT_PUBLIC_CHUNK_SECONDS) || 20;
 
+function mixToMono(audio: AudioBuffer): Float32Array {
+  if (audio.numberOfChannels === 1) return audio.getChannelData(0).slice();
+  const out = new Float32Array(audio.length);
+  for (let c = 0; c < audio.numberOfChannels; c++) {
+    const ch = audio.getChannelData(c);
+    for (let i = 0; i < out.length; i++) out[i] += ch[i] / audio.numberOfChannels;
+  }
+  return out;
+}
+
+/** Decode any browser-supported audio blob to mono PCM at its native sample rate. */
+export async function decodeBlobToMono(
+  data: Blob | ArrayBuffer,
+): Promise<{ samples: Float32Array; sampleRate: number }> {
+  const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
+  const Ctx: typeof AudioContext =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new Ctx();
+  try {
+    const audio = await ctx.decodeAudioData(buffer.slice(0));
+    return { samples: mixToMono(audio), sampleRate: audio.sampleRate };
+  } finally {
+    void ctx.close();
+  }
+}
+
 export async function decodeToMono16k(data: Blob | ArrayBuffer): Promise<Float32Array> {
   const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
   const Ctx: typeof AudioContext =
@@ -11,13 +38,7 @@ export async function decodeToMono16k(data: Blob | ArrayBuffer): Promise<Float32
   const ctx = new Ctx({ sampleRate: WHISPER_SAMPLE_RATE });
   try {
     const audio = await ctx.decodeAudioData(buffer);
-    if (audio.numberOfChannels === 1) return audio.getChannelData(0).slice();
-    const out = new Float32Array(audio.length);
-    for (let c = 0; c < audio.numberOfChannels; c++) {
-      const ch = audio.getChannelData(c);
-      for (let i = 0; i < out.length; i++) out[i] += ch[i] / audio.numberOfChannels;
-    }
-    return out;
+    return mixToMono(audio);
   } finally {
     void ctx.close();
   }

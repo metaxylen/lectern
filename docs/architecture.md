@@ -1,7 +1,7 @@
 # Architecture
 
-Lectern is a Next.js (App Router) application. Almost everything runs in the browser; the server exists to talk to
-language models, which cannot be called safely from a page.
+Lectern is a Next.js (App Router) application. Capture and storage run in the browser; the server talks to language models
+and to a local whisper.cpp sidecar for speech-to-text.
 
 ```mermaid
 flowchart TB
@@ -10,22 +10,24 @@ flowchart TB
     S[useLectureSession<br/>the record → transcribe → notes flow]
     R[useRecorder<br/>MediaRecorder, 20 s parts]
     T[PCM tap + LiveTranscriber]
-    Wk[Whisper Web Worker<br/>transformers.js]
     IDB[(IndexedDB<br/>stt-audio)]
     LS[(localStorage<br/>lectures and notes)]
   end
   subgraph Server["Next.js server"]
-    API["/api/notes (NDJSON stream)<br/>/api/status · /api/health"]
+    API["/api/notes · /api/transcribe<br/>/api/status · /api/health"]
     P[Notes pipeline<br/>lib/server/notes]
+    STT[whisper-server sidecar]
   end
   O[Ollama]
   G[Gemini]
 
   UI --> S
   S --> R --> IDB
-  R --> Wk
-  R --> T --> Wk
+  R --> T
   S --> LS
+  S -->|audio parts| API
+  API --> STT
+  T --> API
   S -->|transcript + segments| API --> P
   P --> O
   P --> G
@@ -42,7 +44,8 @@ flowchart TB
    decoded and transcribed on its own. Data is flushed every 2 s.
 3. **Persist** (`lib/audio-store.ts`). A session is written to IndexedDB immediately. The growing part is re-written every 2 s
    (`complete: false`), and replaced by the final file when the cycle ends. Session id equals lecture id.
-4. **Transcribe** (`lib/stt/pipeline.ts`). Parts are decoded to 16 kHz mono and passed, one at a time, to the Whisper
+4. **Transcribe** (`lib/stt/pipeline.ts`). Parts are decoded to 16 kHz mono and passed, one at a time, to Whisper: by
+   default `POST /api/transcribe` (whisper.cpp `large-v3-turbo` on this machine). Tiny/base/small still use the in-browser
    worker. Results are stored on the part itself (`status`, `segments`), so retry, resume and re-transcribe only do the
    missing work, and timestamps stay right because finished parts still advance the timeline.
 5. **Live draft** (`lib/stt/live.ts`). A second consumer of the same stream feeds a 60 s ring buffer
@@ -52,11 +55,11 @@ flowchart TB
 
 ## Storage
 
-| Data                                          | Where                                                          | Why                                               |
-| --------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------- |
-| Lecture metadata, transcript, segments, notes | `localStorage` (`stt.lectures.v1`), validated with zod on read | Small, synchronous, survives reloads              |
-| Audio parts and per-part transcription state  | IndexedDB `stt-audio` (`sessions`, `chunks`)                   | Large blobs, written incrementally                |
-| Whisper models                                | Cache Storage `transformers-cache`                             | Managed by transformers.js; removable from the UI |
+| Data                                          | Where                                                                                                  | Why                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Lecture metadata, transcript, segments, notes | `localStorage` (`stt.lectures.v1`), validated with zod on read                                         | Small, synchronous, survives reloads         |
+| Audio parts and per-part transcription state  | IndexedDB `stt-audio` (`sessions`, `chunks`)                                                           | Large blobs, written incrementally           |
+| Whisper models                                | Disk `~/.local/share/lectern/whisper/` (turbo) or Cache Storage `transformers-cache` (tiny/base/small) | Removable; turbo is not in the browser cache |
 
 The internal names keep the project's original `stt` prefix so existing data keeps working.
 
@@ -72,11 +75,12 @@ The internal names keep the project's original `stt` prefix so existing data kee
 
 ## Server
 
-| Endpoint          | Purpose                                                                                                                                                                                                               |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/notes` | Validates the body (zod), applies size and rate limits, runs the pipeline; with `stream: true` answers with newline-delimited JSON (`progress`, then `result` or `error`). Stops the model if the client disconnects. |
-| `GET /api/status` | Which engines are reachable and which model would be used                                                                                                                                                             |
-| `GET /api/health` | Liveness probe without external calls                                                                                                                                                                                 |
+| Endpoint               | Purpose                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/notes`      | Validates the body (zod), applies size and rate limits, runs the pipeline; with `stream: true` answers with newline-delimited JSON (`progress`, then `result` or `error`). Stops the model if the client disconnects. |
+| `POST /api/transcribe` | Accepts a 16 kHz WAV (one recorded part). Spawns `whisper-server` on localhost if needed and returns `{ text, language }`. `X-Warmup: 1` only starts the sidecar.                                                     |
+| `GET /api/status`      | Which engines are reachable and which model would be used, including whether local Whisper is installed                                                                                                               |
+| `GET /api/health`      | Liveness probe without external calls                                                                                                                                                                                 |
 
 All errors share one shape, `{ "error": "...", "code": "..." }`. The rate limiter is in-memory and per process.
 

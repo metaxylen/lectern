@@ -36,9 +36,18 @@ export type NotesResult = {
   elapsedMs?: number;
 };
 
+export type WhisperEngineStatus = {
+  available: boolean;
+  ready: boolean;
+  model: string | null;
+  binary: boolean;
+  backend: "metal" | "cpu";
+};
+
 export type EngineStatus = {
   ollama: { reachable: boolean; host: string; models: string[]; selected: string | null };
   gemini: { configured: boolean; model: string };
+  whisper: WhisperEngineStatus;
 };
 
 export type Segment = {

@@ -9,14 +9,15 @@ npm run dev
 
 ## Commands
 
-| Command                           | What it does                                                     |
-| --------------------------------- | ---------------------------------------------------------------- |
-| `npm run check`                   | Typecheck, lint, format check and unit tests: run before pushing |
-| `npm test` / `npm run test:watch` | Vitest unit and API tests                                        |
-| `npm run test:coverage`           | Same with coverage thresholds (CI)                               |
-| `npm run test:e2e`                | Playwright against a production build on port 47232              |
-| `npm run eval`                    | Notes quality against a real engine                              |
-| `npm run format`                  | Prettier, with Tailwind class sorting                            |
+| Command                           | What it does                                                      |
+| --------------------------------- | ----------------------------------------------------------------- |
+| `npm run check`                   | Typecheck, lint, format check and unit tests: run before pushing  |
+| `npm test` / `npm run test:watch` | Vitest unit and API tests                                         |
+| `npm run test:coverage`           | Same with coverage thresholds (CI)                                |
+| `npm run test:e2e`                | Playwright against a production build on port 47232               |
+| `npm run eval`                    | Notes quality against a real engine                               |
+| `npm run whisper:setup`           | Build whisper.cpp (Metal) and download `large-v3-turbo` (~1.6 GB) |
+| `npm run format`                  | Prettier, with Tailwind class sorting                             |
 
 ## Tests
 
@@ -25,7 +26,7 @@ npm run dev
 - **End to end** (`e2e/`): seeded `localStorage`/IndexedDB, Chromium's fake microphone, and mocked API responses. They never
   download Whisper models, so they are fast and deterministic. A fixture fails any test that logs an unexpected browser error.
 - **Opt-in real model** (`E2E_WHISPER=1`): uploads and records synthesized speech (macOS `say`) and runs the real tiny
-  Whisper model end to end.
+  in-browser Whisper model end to end. Native `large-v3-turbo` is not downloaded in CI.
 - **Screenshots**: `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates `docs/images`.
 
 ## Conventions

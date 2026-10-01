@@ -10,6 +10,8 @@ test("GET /api/status reports engines", async ({ request }) => {
   const body = await (await request.get("/api/status")).json();
   expect(body.ollama.reachable).toBe(false);
   expect(body.gemini.configured).toBe(false);
+  expect(typeof body.whisper.available).toBe("boolean");
+  expect(body.whisper).toHaveProperty("model");
 });
 
 test("POST /api/notes validates input", async ({ request }) => {

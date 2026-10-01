@@ -66,7 +66,7 @@ function engineHint(choice: NotesEngineChoice, engines: EngineStatus | null): st
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+    <span className="rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-xs font-medium text-muted-foreground">
       {children}
     </span>
   );
@@ -80,15 +80,15 @@ export function SessionOptions({ session }: { session: LectureSession }) {
   const locked = recorder.recording;
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border border-white/10 bg-white/4">
       <button
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full flex-wrap items-center gap-2 rounded-xl px-3 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="flex w-full cursor-pointer flex-wrap items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors duration-200 outline-none hover:bg-white/6 focus-visible:ring-3 focus-visible:ring-ring/50"
       >
-        <Settings2 className="size-4 text-muted-foreground" />
+        <Settings2 className="size-4 text-muted-foreground" aria-hidden />
         <span className="text-sm font-medium">Session options</span>
         <span className="flex flex-wrap items-center gap-1.5" aria-label="Current options">
           <Chip>{speechLabel(session.audioLang)}</Chip>
@@ -132,7 +132,7 @@ export function SessionOptions({ session }: { session: LectureSession }) {
             onChange={session.setModelChoice}
             options={MODEL_OPTIONS}
             disabled={locked || busy}
-            hint="Larger models are more accurate and slower. Downloaded once, then cached."
+            hint="Turbo (large-v3-turbo) runs on this Mac via whisper.cpp. Tiny, base and small stay in the browser as a fallback."
           />
           <SimpleSelect
             id="notes-engine"
@@ -144,7 +144,7 @@ export function SessionOptions({ session }: { session: LectureSession }) {
             hint={engineHint(session.engineChoice, engines)}
           />
 
-          <div className="flex items-start justify-between gap-4 rounded-lg bg-muted/50 p-3 sm:col-span-2">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-white/8 bg-white/4 p-3 sm:col-span-2">
             <div className="flex flex-col gap-0.5">
               <Label htmlFor="live-transcript">Live transcript</Label>
               <p className="text-xs text-muted-foreground">

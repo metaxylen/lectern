@@ -146,6 +146,13 @@ test.beforeEach(async ({ page }) => {
           selected: "gemma4:12b",
         },
         gemini: { configured: false, model: "gemini-flash-latest" },
+        whisper: {
+          available: true,
+          ready: true,
+          model: "large-v3-turbo",
+          binary: true,
+          backend: "metal",
+        },
       },
     }),
   );

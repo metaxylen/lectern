@@ -6,6 +6,7 @@ export type ApiErrorCode =
   | "payload_too_large"
   | "rate_limited"
   | "engine_failed"
+  | "engine_unavailable"
   | "misconfigured";
 
 /** Uniform error body: `{ error: <human message>, code: <stable machine code> }`. */

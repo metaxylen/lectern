@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { listAudioInputs, type AudioInput, type AudioSource } from "@/lib/audio/capture";
@@ -8,12 +8,7 @@ import { startPcmTap, type PcmTap } from "@/lib/audio/pcm-tap";
 import { LiveTranscriber } from "@/lib/stt/live";
 import { useRecorder, type RecordedChunk } from "@/hooks/use-recorder";
 import { useSpeechPreview } from "@/hooks/use-speech-preview";
-import {
-  MODEL_WITHOUT_WEBGPU,
-  MODEL_WITH_WEBGPU,
-  hasWebGpu,
-  useWhisper,
-} from "@/hooks/use-whisper";
+import { MODEL_NATIVE, useWhisper } from "@/hooks/use-whisper";
 import {
   createSession,
   deleteSession,
@@ -34,6 +29,7 @@ import {
   parseNotesLanguage,
 } from "@/lib/languages";
 import { newLecture } from "@/lib/lecture";
+import { downloadLectureAudio } from "@/lib/export/audio";
 import { lectureToMarkdown, slugify } from "@/lib/markdown";
 import { reportError } from "@/lib/monitoring";
 import { requestNotes } from "@/lib/notes-client";
@@ -82,12 +78,7 @@ export function useLectureSession() {
   const [notesLang, setNotesLang] = useState(DEFAULT_NOTES_LANGUAGE);
   const [engineChoice, setEngineChoice] = useState<NotesEngineChoice>("auto");
   const [modelChoice, setModelChoice] = useState<string | null>(null);
-  const webGpu = useSyncExternalStore(
-    () => () => {},
-    hasWebGpu,
-    () => false,
-  );
-  const modelId = modelChoice ?? (webGpu ? MODEL_WITH_WEBGPU : MODEL_WITHOUT_WEBGPU);
+  const modelId = modelChoice ?? MODEL_NATIVE;
 
   // --- session state ------------------------------------------------------------------------
   const [engines, setEngines] = useState<EngineStatus | null>(null);
@@ -851,6 +842,21 @@ export function useLectureSession() {
     URL.revokeObjectURL(url);
   }, [current?.title, markdown]);
 
+  const downloadAudio = useCallback(async () => {
+    const lecture = currentRef.current;
+    if (!lecture?.hasAudio) return;
+    const toastId = "download-audio";
+    toast.loading("Preparing WAV…", { id: toastId });
+    try {
+      await downloadLectureAudio(lecture.id, lecture.title);
+      toast.success("Audio download started", { id: toastId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download the audio", {
+        id: toastId,
+      });
+    }
+  }, []);
+
   // --- leave-page guard ---------------------------------------------------------------------
   const working = recorder.recording || busy;
   useEffect(() => {
@@ -916,6 +922,7 @@ export function useLectureSession() {
     removeLecture,
     copyMarkdown,
     downloadMarkdown,
+    downloadAudio,
     cancel,
     cancelNotes,
     retryFailed,

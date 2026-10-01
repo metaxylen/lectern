@@ -15,7 +15,12 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["lib/**/*.ts", "app/api/**/*.ts"],
-      exclude: ["lib/stt/whisper.worker.ts", "lib/stt/empty-module.ts", "**/*.test.ts"],
+      exclude: [
+        "lib/stt/whisper.worker.ts",
+        "lib/stt/empty-module.ts",
+        "lib/server/stt/server.ts",
+        "**/*.test.ts",
+      ],
       reporter: ["text-summary", "html"],
       thresholds: { statements: 75, branches: 70, functions: 75, lines: 75 },
     },

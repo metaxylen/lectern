@@ -4,14 +4,15 @@ import { expect, test, type Page } from "@playwright/test";
 // real recorder + IndexedDB persistence + failure handling without needing the model.
 // (They deliberately do not use the strict console-error fixture: failures are logged on purpose.)
 
-async function blockModelDownloads(page: Page) {
+async function blockTranscription(page: Page) {
   await page.route(/huggingface\.co|hf\.co|jsdelivr/, (route) => route.abort());
+  await page.route("**/api/transcribe**", (route) => route.abort());
 }
 
 test("a recording whose transcription fails keeps its audio and can be retried", async ({
   page,
 }) => {
-  await blockModelDownloads(page);
+  await blockTranscription(page);
   await page.goto("/");
 
   await page.getByRole("button", { name: "Record" }).click();
@@ -36,7 +37,7 @@ test("a recording whose transcription fails keeps its audio and can be retried",
 test("closing the tab mid-recording leaves audio that can be recovered", async ({ browser }) => {
   const context = await browser.newContext({ permissions: ["microphone"] });
   const first = await context.newPage();
-  await blockModelDownloads(first);
+  await blockTranscription(first);
   await first.goto("/");
   await first.getByRole("button", { name: "Record" }).click();
   await expect(first.getByRole("button", { name: /Stop & make notes/ })).toBeVisible();
@@ -44,7 +45,7 @@ test("closing the tab mid-recording leaves audio that can be recovered", async (
   await first.close({ runBeforeUnload: false }); // simulates a crash / killed tab
 
   const second = await context.newPage();
-  await blockModelDownloads(second);
+  await blockTranscription(second);
   // The dead tab's session would look "live" for 30s; age it like time had passed.
   await second.addInitScript(() => {
     const open = indexedDB.open("stt-audio", 1);

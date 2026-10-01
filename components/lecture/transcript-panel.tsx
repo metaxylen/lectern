@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
+import { Download, Loader2, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import { AudioControls, formatBytes } from "@/components/lecture/audio-controls";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,7 +55,7 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
         <AudioControls session={session} />
 
         {segments.length > 0 || transcript || showPreview ? (
-          <div className="max-h-72 overflow-y-auto text-sm leading-relaxed">
+          <div className="max-h-[min(28rem,55vh)] overflow-y-auto text-sm leading-relaxed">
             {segments.length > 0 ? (
               <ol className="flex flex-col gap-1" aria-label="Transcript segments">
                 {segments.map((seg, i) => (
@@ -63,7 +63,7 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
                     key={`${seg.start}-${i}`}
                     className={cn(
                       "flex gap-2 rounded-md px-1.5 py-0.5",
-                      i === activeIndex && "bg-primary/10",
+                      i === activeIndex && "bg-primary/15 ring-1 ring-primary/20",
                     )}
                   >
                     {canSeek ? (
@@ -71,7 +71,7 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
                         type="button"
                         onClick={() => player.seek(seg.start)}
                         aria-label={`Play from ${formatTimestamp(seg.start)}`}
-                        className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums underline-offset-2 hover:text-foreground hover:underline"
+                        className="shrink-0 cursor-pointer font-mono text-xs text-muted-foreground tabular-nums underline-offset-2 hover:text-primary hover:underline"
                       >
                         {formatTimestamp(seg.start)}
                       </button>
@@ -127,6 +127,14 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
 
         {current?.hasAudio && !recorder.recording && (
           <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void session.downloadAudio()}
+            >
+              <Download /> Download audio
+            </Button>
             {audioInfo && audioInfo.incomplete > 0 && (
               <Button size="sm" variant="secondary" disabled={busy} onClick={session.retryFailed}>
                 <RotateCcw /> Retry {audioInfo.incomplete} untranscribed part

@@ -1,6 +1,7 @@
 import { offlineNotes } from "../../notes/offline";
 import type { EngineStatus, NotesEngine, NotesEngineChoice, NotesResult } from "../../types";
 import { getEnv } from "../env";
+import { getWhisperStatus } from "../stt/status";
 import {
   createGeminiClient,
   createOllamaClient,
@@ -28,6 +29,7 @@ export async function getEngineStatus(): Promise<EngineStatus> {
       selected: models ? pickOllamaModel(models) : null,
     },
     gemini: { configured: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL },
+    whisper: getWhisperStatus(),
   };
 }
 

@@ -1,10 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { encodeWavPcm16 } from "@/lib/stt/wav";
+import { isNativeWhisper } from "@/lib/stt/models";
 
 export type WhisperStatus = "idle" | "loading" | "ready" | "error";
+export type WhisperDevice = "webgpu" | "wasm" | "metal" | "cpu";
 
-export { MODEL_WITHOUT_WEBGPU, MODEL_WITH_WEBGPU, WHISPER_MODELS } from "@/lib/stt/models";
+export {
+  MODEL_NATIVE,
+  MODEL_WITHOUT_WEBGPU,
+  MODEL_WITH_WEBGPU,
+  WHISPER_MODELS,
+} from "@/lib/stt/models";
 
 export function hasWebGpu(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
@@ -14,10 +22,20 @@ export type WhisperResult = { text: string; language?: string };
 
 type Pending = { resolve: (r: WhisperResult) => void; reject: (e: Error) => void };
 
+async function readError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body.error) return body.error;
+  } catch {
+    // not JSON
+  }
+  return `Transcription failed (${res.status})`;
+}
+
 export function useWhisper(modelId: string) {
   const [status, setStatus] = useState<WhisperStatus>("idle");
   const [progress, setProgress] = useState(0);
-  const [device, setDevice] = useState<"webgpu" | "wasm" | null>(null);
+  const [device, setDevice] = useState<WhisperDevice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -26,8 +44,15 @@ export function useWhisper(modelId: string) {
   const pending = useRef(new Map<number, Pending>());
   const files = useRef(new Map<string, { loaded: number; total: number }>());
   const nextId = useRef(1);
+  const nativeReady = useRef(false);
+  const nativeWarmup = useRef<Promise<void> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const dispose = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    nativeWarmup.current = null;
+    nativeReady.current = false;
     workerRef.current?.terminate();
     workerRef.current = null;
     loadedModel.current = null;
@@ -37,7 +62,47 @@ export function useWhisper(modelId: string) {
 
   useEffect(() => dispose, [dispose]);
 
-  const load = useCallback(() => {
+  const loadNative = useCallback((): Promise<void> => {
+    if (loadedModel.current === modelId && nativeReady.current) {
+      return nativeWarmup.current ?? Promise.resolve();
+    }
+    if (loadedModel.current === modelId && nativeWarmup.current) return nativeWarmup.current;
+    dispose();
+    setStatus("loading");
+    setProgress(15);
+    setError(null);
+    setNotice(null);
+    loadedModel.current = modelId;
+    const abort = new AbortController();
+    abortRef.current = abort;
+    const run = (async () => {
+      const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "X-Warmup": "1" },
+        signal: abort.signal,
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as { backend?: WhisperDevice };
+      if (abort.signal.aborted) return;
+      nativeReady.current = true;
+      setDevice(body.backend === "cpu" ? "cpu" : "metal");
+      setProgress(100);
+      setNotice(null);
+      setStatus("ready");
+    })().catch((err: unknown) => {
+      if (abort.signal.aborted) return;
+      nativeReady.current = false;
+      loadedModel.current = null;
+      nativeWarmup.current = null;
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+      throw err;
+    });
+    nativeWarmup.current = run;
+    return run;
+  }, [modelId, dispose]);
+
+  const loadWorker = useCallback(() => {
     if (workerRef.current && loadedModel.current === modelId) return;
     dispose();
     setStatus("loading");
@@ -95,9 +160,33 @@ export function useWhisper(modelId: string) {
     worker.postMessage({ type: "load", model: modelId, device: hasWebGpu() ? "webgpu" : "wasm" });
   }, [modelId, dispose]);
 
+  const load = useCallback(() => {
+    if (isNativeWhisper(modelId)) void loadNative().catch(() => {});
+    else loadWorker();
+  }, [modelId, loadNative, loadWorker]);
+
+  const transcribeNative = useCallback(
+    async (audio: Float32Array, language?: string) => {
+      await loadNative();
+      const wav = encodeWavPcm16(audio);
+      const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Speech-Language": language && language !== "auto" ? language : "auto",
+        },
+        body: new Blob([wav as BlobPart], { type: "audio/wav" }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      return (await res.json()) as WhisperResult;
+    },
+    [loadNative],
+  );
+
   const transcribe = useCallback(
     (audio: Float32Array, language?: string) => {
-      load();
+      if (isNativeWhisper(modelId)) return transcribeNative(audio, language);
+      loadWorker();
       const worker = workerRef.current;
       if (!worker) return Promise.reject(new Error("Whisper worker unavailable"));
       const id = nextId.current++;
@@ -106,7 +195,7 @@ export function useWhisper(modelId: string) {
         worker.postMessage({ type: "transcribe", id, audio, language }, [audio.buffer]);
       });
     },
-    [load],
+    [modelId, loadWorker, transcribeNative],
   );
 
   /** Throw away a failed or stuck load and start over. */
@@ -121,6 +210,7 @@ export function useWhisper(modelId: string) {
     setStatus("idle");
     setProgress(0);
     setError(null);
+    setNotice(null);
   }, [dispose]);
 
   return { status, progress, device, error, notice, load, retry, cancel, transcribe };

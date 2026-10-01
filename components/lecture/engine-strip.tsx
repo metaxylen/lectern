@@ -10,11 +10,23 @@ const DOT: Record<Chip["state"], string> = {
 };
 
 function whisperText(whisper: ReturnType<typeof useWhisper>) {
+  const device =
+    whisper.device === "webgpu"
+      ? "WebGPU"
+      : whisper.device === "wasm"
+        ? "WASM"
+        : whisper.device === "metal"
+          ? "Metal"
+          : whisper.device === "cpu"
+            ? "CPU"
+            : "";
   switch (whisper.status) {
     case "ready":
-      return `ready · ${whisper.device === "webgpu" ? "WebGPU" : "WASM"}`;
+      return device ? `ready · ${device}` : "ready";
     case "loading":
-      return `downloading ${whisper.progress}%`;
+      return whisper.device === "metal" || whisper.progress < 20
+        ? "starting…"
+        : `downloading ${whisper.progress}%`;
     case "error":
       return "failed to load";
     default:
@@ -68,7 +80,7 @@ export function EngineStrip({
       {chips.map((c) => (
         <li
           key={c.label}
-          className="flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs"
+          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs"
         >
           <span className={`size-1.5 rounded-full ${DOT[c.state]}`} />
           {c.label}

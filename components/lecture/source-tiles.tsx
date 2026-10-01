@@ -75,12 +75,12 @@ export function SourceTiles({ session }: { session: LectureSession }) {
             <label
               key={tile.value}
               className={cn(
-                "relative flex cursor-pointer flex-col gap-1.5 rounded-xl border p-3 transition-colors",
+                "relative flex min-h-24 cursor-pointer flex-col gap-1.5 rounded-xl border p-3 transition-colors duration-200",
                 "has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
                 selected
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "border-border bg-card hover:border-primary/40 hover:bg-muted/50",
-                disabled && "cursor-not-allowed opacity-55 hover:border-border hover:bg-card",
+                  ? "border-primary/70 bg-primary/12 ring-1 ring-primary/50"
+                  : "border-white/10 bg-white/4 hover:border-primary/40 hover:bg-white/8",
+                disabled && "cursor-not-allowed opacity-55 hover:border-white/10 hover:bg-white/4",
               )}
             >
               <input
@@ -97,6 +97,7 @@ export function SourceTiles({ session }: { session: LectureSession }) {
                   "flex items-center gap-1.5",
                   selected ? "text-primary" : "text-muted-foreground",
                 )}
+                aria-hidden
               >
                 {tile.icons}
               </span>
@@ -123,8 +124,8 @@ export function SourceTiles({ session }: { session: LectureSession }) {
       )}
 
       {sourceChoice !== "mic" && (
-        <p className="flex gap-2 rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0" />
+        <p className="flex gap-2 rounded-lg border border-white/8 bg-white/4 p-3 text-xs leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
             A window asks what to share: choose a browser tab and tick{" "}
             <strong className="text-foreground">Also share tab audio</strong>. Works in Chrome and
@@ -135,8 +136,8 @@ export function SourceTiles({ session }: { session: LectureSession }) {
         </p>
       )}
       {sourceChoice === "mic" && hasLoopback && (
-        <p className="flex gap-2 rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0" />
+        <p className="flex gap-2 rounded-lg border border-white/8 bg-white/4 p-3 text-xs leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
             A virtual input is available. Choose it as the input device to transcribe everything
             your computer plays.

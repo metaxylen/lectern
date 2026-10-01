@@ -29,8 +29,8 @@
 Most transcription tools are cloud services that upload your audio, bill by the minute and assume one language per recording.
 Lectern is the opposite on all three counts:
 
-- **Local-first.** Speech recognition runs in your browser (OpenAI Whisper through WebGPU or WASM). Notes are written by a
-  model on your own machine (Ollama). Your audio never leaves the device.
+- **Local-first.** Speech recognition runs on your machine (Whisper `large-v3-turbo` via whisper.cpp, with smaller in-browser
+  models as a fallback). Notes are written by a model on your own machine (Ollama). Your audio never leaves the device.
 - **Built for code-switching.** A lecturer who says _"vizede mutlaka çıkacak, race condition tanımını ezberleyin"_ mid-sentence
   is transcribed correctly: the language is detected for every 20-second part, and Turkish remarks are kept and translated
   into the notes instead of being dropped.
@@ -66,10 +66,17 @@ npm install
 npm run dev          # http://localhost:47231
 ```
 
-Open the page and press **Record** or **Upload audio**. The first run downloads the Whisper model (40–250 MB, cached by
-the browser). Microphone access needs `localhost` or HTTPS.
+Open the page and press **Record** or **Upload audio**. Microphone access needs `localhost` or HTTPS.
 
-**For good notes, install a local model.** Without one, Lectern falls back to a simple offline summarizer.
+**For accurate transcripts, install local Whisper once** (~1.6 GB, `large-v3-turbo`, stays on this Mac):
+
+```bash
+npm run whisper:setup
+```
+
+Restart the dev server afterwards. Until that finishes, Session options can still pick Tiny / Base / Small (in the browser).
+
+**For good notes, install a local language model.** Without one, Lectern falls back to a simple offline summarizer.
 
 ```bash
 # install Ollama from https://ollama.com, then:
@@ -88,7 +95,7 @@ flowchart LR
   A[Microphone<br/>Tab audio<br/>File] --> B[MediaRecorder<br/>20 s standalone parts]
   B --> C[(IndexedDB<br/>audio + state)]
   A --> T[PCM tap] --> L[Live decoder]
-  B --> W[Whisper in a Web Worker<br/>WebGPU / WASM]
+  B --> W[Whisper large-v3-turbo<br/>whisper.cpp on this Mac]
   L --> W
   W --> S[Timestamped segments]
   S --> N[/api/notes/]
@@ -100,8 +107,8 @@ flowchart LR
 ```
 
 1. **Capture.** The recorder cuts the stream into standalone 20-second files and saves them to IndexedDB every two seconds.
-2. **Transcribe.** Each part is decoded to 16 kHz mono and transcribed by Whisper in a worker. The language (English or
-   Turkish) is chosen per part by comparing the decoder's language logits, because transformers.js does not detect it.
+2. **Transcribe.** Each part is decoded to 16 kHz mono and sent to local Whisper (`large-v3-turbo` via whisper.cpp, Metal
+   on Apple Silicon). Language is detected per part. Tiny/base/small still run in a browser worker if you pick them.
 3. **Clean and summarize.** Hallucinated phrases and repeats are removed. Short lectures are summarized in one pass; long ones
    part by part, then merged. Output is constrained to a JSON schema and verified against the transcript.
 4. **Study.** Read the notes, jump to any chapter in the audio, flip flashcards, export Markdown or an Anki file.
@@ -157,38 +164,46 @@ then sent to Google for note generation only.
 
 Copy `.env.example` to `.env.local`. Everything is optional.
 
-| Variable                       | Default                  | Purpose                                                  |
-| ------------------------------ | ------------------------ | -------------------------------------------------------- |
-| `OLLAMA_HOST`                  | `http://127.0.0.1:11434` | Where Ollama listens                                     |
-| `OLLAMA_MODEL`                 | _(auto)_                 | Force a model                                            |
-| `GEMINI_API_KEY`               | _(unset)_                | Enables the Gemini engine                                |
-| `GEMINI_MODEL`                 | `gemini-flash-latest`    | Gemini model                                             |
-| `NOTES_MAX_TRANSCRIPT_CHARS`   | `500000`                 | Largest transcript `/api/notes` accepts                  |
-| `NOTES_RATE_LIMIT_PER_MINUTE`  | `20`                     | Per-client limit on `/api/notes`; `0` disables           |
-| `NEXT_PUBLIC_CHUNK_SECONDS`    | `20`                     | Part length; shorter parts give finer language detection |
-| `NEXT_PUBLIC_ERROR_REPORT_URL` | _(unset)_                | POST errors here as JSON                                 |
+| Variable                       | Default                                                  | Purpose                                                   |
+| ------------------------------ | -------------------------------------------------------- | --------------------------------------------------------- |
+| `OLLAMA_HOST`                  | `http://127.0.0.1:11434`                                 | Where Ollama listens                                      |
+| `OLLAMA_MODEL`                 | _(auto)_                                                 | Force a model                                             |
+| `GEMINI_API_KEY`               | _(unset)_                                                | Enables the Gemini engine                                 |
+| `GEMINI_MODEL`                 | `gemini-flash-latest`                                    | Gemini model                                              |
+| `NOTES_MAX_TRANSCRIPT_CHARS`   | `500000`                                                 | Largest transcript `/api/notes` accepts                   |
+| `NOTES_RATE_LIMIT_PER_MINUTE`  | `20`                                                     | Per-client limit on `/api/notes`; `0` disables            |
+| `NEXT_PUBLIC_CHUNK_SECONDS`    | `20`                                                     | Part length; shorter parts give finer language detection  |
+| `NEXT_PUBLIC_ERROR_REPORT_URL` | _(unset)_                                                | POST errors here as JSON                                  |
+| `WHISPER_MODEL_PATH`           | `~/.local/share/lectern/whisper/ggml-large-v3-turbo.bin` | whisper.cpp weights                                       |
+| `WHISPER_SERVER_BIN`           | `~/.local/share/lectern/whisper/bin/whisper-server`      | sidecar binary                                            |
+| `WHISPER_SERVER_URL`           | _(unset)_                                                | Use an already-running whisper-server instead of spawning |
+| `WHISPER_PORT`                 | `8178`                                                   | Port for the spawned sidecar (localhost only)             |
+| `STT_MAX_AUDIO_BYTES`          | `8000000`                                                | Largest WAV `/api/transcribe` accepts                     |
+| `STT_RATE_LIMIT_PER_MINUTE`    | `90`                                                     | Per-client limit on `/api/transcribe`; `0` disables       |
 
 Invalid values fail with a readable message instead of undefined behaviour. Details: [docs/configuration.md](docs/configuration.md).
 
 ## Browser support
 
-| Feature                          | Chrome / Edge           | Firefox                      | Safari                       |
-| -------------------------------- | ----------------------- | ---------------------------- | ---------------------------- |
-| Recording and transcription      | Tested (WebGPU or WASM) | Untested                     | Untested                     |
-| Tab and screen audio             | Yes                     | Not supported by the browser | Not supported by the browser |
-| Live transcript                  | Tested                  | Untested                     | Untested                     |
-| Browser speech preview (stopgap) | Yes                     | Not supported                | Untested                     |
+| Feature                          | Chrome / Edge | Firefox                      | Safari                       |
+| -------------------------------- | ------------- | ---------------------------- | ---------------------------- |
+| Recording and transcription      | Tested        | Untested                     | Untested                     |
+| Tab and screen audio             | Yes           | Not supported by the browser | Not supported by the browser |
+| Live transcript                  | Tested        | Untested                     | Untested                     |
+| Browser speech preview (stopgap) | Yes           | Not supported                | Untested                     |
 
-Developed and tested on Chromium. Whisper `small` on CPU is slower than real time; use WebGPU or pick `base`.
+Developed and tested on Chromium. Native `large-v3-turbo` is the default after `npm run whisper:setup`. In-browser
+`small` on CPU is slower than real time; use WebGPU or pick `base` if you stay in the browser.
 
 ## Project layout
 
 ```
-app/                  Next.js routes and API (notes, status, health)
+app/                  Next.js routes and API (notes, transcribe, status, health)
 components/           UI: session setup, recorder, transcript, notes, storage panel
 hooks/                useLectureSession (the flow), recorder, Whisper, audio player
 lib/audio/            Capture sources, PCM tap and ring buffer
-lib/stt/              Whisper worker, language detection, pipeline, live transcriber
+lib/stt/              Browser Whisper worker, language detection, pipeline, live transcriber
+lib/server/stt/       whisper.cpp sidecar (large-v3-turbo)
 lib/notes/            Cleaning, chunking, grounding, exam-remark detection, term dictionary
 lib/server/notes/     Prompts, LLM clients, single-pass and part-by-part pipeline
 lib/audio-store.ts    Crash-safe audio and per-part state in IndexedDB
@@ -204,6 +219,7 @@ npm run check         # typecheck + lint + format check + unit tests
 npm test              # unit and API tests (Vitest)
 npm run test:e2e      # browser tests (Playwright; first run: npx playwright install chromium)
 npm run eval          # notes quality against a real engine (needs Ollama or a Gemini key)
+npm run whisper:setup # download whisper.cpp + large-v3-turbo (~1.6 GB, once)
 ```
 
 CI runs typecheck, lint, format, coverage, build and the end-to-end suite on every push. See
@@ -216,7 +232,7 @@ CI runs typecheck, lint, format, coverage, build and the end-to-end suite on eve
   (about 460 MB per hour of audio).
 - Recording is cut into standalone files, so a few milliseconds of audio can be lost at each cut.
 - Automatic language detection chooses between English and Turkish only; pick another language explicitly.
-- Small models (and small Whisper sizes) make mistakes. Notes flag what they removed, but read them critically.
+- In-browser Whisper sizes make more mistakes than `large-v3-turbo`. Notes flag what they removed, but read them critically.
 - Real-world system-audio capture on macOS depends on a third-party virtual device.
 
 ## Roadmap
@@ -231,7 +247,7 @@ Ideas and bug reports are welcome in [issues](https://github.com/metaxylen/lecte
 
 ## Acknowledgements
 
-[OpenAI Whisper](https://github.com/openai/whisper) · [transformers.js](https://huggingface.co/docs/transformers.js) ·
+[OpenAI Whisper](https://github.com/openai/whisper) · [whisper.cpp](https://github.com/ggml-org/whisper.cpp) · [transformers.js](https://huggingface.co/docs/transformers.js) ·
 [Ollama](https://ollama.com) · [Next.js](https://nextjs.org) · [shadcn/ui](https://ui.shadcn.com)
 
 ## License

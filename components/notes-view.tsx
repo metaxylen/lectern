@@ -59,8 +59,8 @@ function Flashcard({ front, back }: { front: string; back: string }) {
       onClick={() => setShown((v) => !v)}
       aria-pressed={shown}
       className={cn(
-        "flex min-h-24 flex-col justify-between rounded-lg border p-3 text-left text-sm transition-colors",
-        shown ? "border-primary/30 bg-primary/5" : "bg-card hover:bg-muted",
+        "flex min-h-24 cursor-pointer flex-col justify-between rounded-lg border p-3 text-left text-sm transition-colors duration-200",
+        shown ? "border-primary/40 bg-primary/10" : "bg-white/4 hover:bg-white/8",
       )}
     >
       <span className={cn("font-medium", shown && "text-xs text-muted-foreground")}>{front}</span>
@@ -110,7 +110,7 @@ export function NotesView({
       </Card>
 
       {notes.examHints && notes.examHints.length > 0 && (
-        <Card size="sm" className="border-amber-500/40 bg-amber-500/5">
+        <Card size="sm" className="border-amber-400/30 bg-amber-400/8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CalendarClock className="size-4" /> {t.hints}
@@ -118,7 +118,7 @@ export function NotesView({
           </CardHeader>
           <CardContent>
             <ul
-              className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed marker:text-amber-600"
+              className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed marker:text-amber-400"
               aria-label={t.hints}
             >
               {notes.examHints.map((h, i) => (
@@ -146,7 +146,7 @@ export function NotesView({
                         type="button"
                         onClick={() => onSeek(c.start!)}
                         aria-label={`Play from ${formatTimestamp(c.start)}`}
-                        className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground tabular-nums underline-offset-2 hover:text-foreground hover:underline"
+                        className="mt-0.5 shrink-0 cursor-pointer font-mono text-xs text-muted-foreground tabular-nums underline-offset-2 hover:text-primary hover:underline"
                       >
                         {formatTimestamp(c.start)}
                       </button>

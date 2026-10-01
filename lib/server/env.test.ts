@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "./env";
+import { DEFAULT_WHISPER_PORT, defaultWhisperBinPath, defaultWhisperModelPath } from "./stt/paths";
 
 describe("parseEnv", () => {
   it("applies defaults when nothing is set", () => {
@@ -10,6 +11,12 @@ describe("parseEnv", () => {
       GEMINI_MODEL: "gemini-flash-latest",
       NOTES_MAX_TRANSCRIPT_CHARS: 500_000,
       NOTES_RATE_LIMIT_PER_MINUTE: 20,
+      WHISPER_MODEL_PATH: defaultWhisperModelPath(),
+      WHISPER_SERVER_BIN: defaultWhisperBinPath(),
+      WHISPER_SERVER_URL: "",
+      WHISPER_PORT: DEFAULT_WHISPER_PORT,
+      STT_MAX_AUDIO_BYTES: 8_000_000,
+      STT_RATE_LIMIT_PER_MINUTE: 90,
     });
   });
 
@@ -29,11 +36,19 @@ describe("parseEnv", () => {
   it("coerces numbers and allows 0 to disable rate limiting", () => {
     expect(parseEnv({ NOTES_RATE_LIMIT_PER_MINUTE: "0" }).NOTES_RATE_LIMIT_PER_MINUTE).toBe(0);
     expect(parseEnv({ NOTES_MAX_TRANSCRIPT_CHARS: "1000" }).NOTES_MAX_TRANSCRIPT_CHARS).toBe(1000);
+    expect(parseEnv({ STT_RATE_LIMIT_PER_MINUTE: "0" }).STT_RATE_LIMIT_PER_MINUTE).toBe(0);
+    expect(parseEnv({ WHISPER_PORT: "9001" }).WHISPER_PORT).toBe(9001);
   });
 
   it("throws one readable error listing every problem", () => {
     expect(() => parseEnv({ OLLAMA_HOST: "not a url", NOTES_MAX_TRANSCRIPT_CHARS: "-5" })).toThrow(
       /Invalid environment configuration[\s\S]*OLLAMA_HOST[\s\S]*NOTES_MAX_TRANSCRIPT_CHARS/,
+    );
+  });
+
+  it("accepts a whisper server URL and strips a trailing slash", () => {
+    expect(parseEnv({ WHISPER_SERVER_URL: "http://127.0.0.1:8178/" }).WHISPER_SERVER_URL).toBe(
+      "http://127.0.0.1:8178",
     );
   });
 });

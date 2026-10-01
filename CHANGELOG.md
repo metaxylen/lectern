@@ -2,6 +2,17 @@
 
 All notable changes are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-09-30
+
+### Added
+
+- **Local Whisper `large-v3-turbo`** via whisper.cpp (Metal on Apple Silicon). Audio is still transcribed on this machine;
+  `npm run whisper:setup` installs the sidecar and the ~1.6 GB weights. Tiny, base and small remain as in-browser fallbacks.
+
+### Changed
+
+- Default speech model is turbo. Session options explain which models run on the Mac versus in the browser.
+
 ## [0.3.1] - 2026-09-30
 
 ### Changed

@@ -43,6 +43,11 @@ export function NotesSection({ session }: { session: LectureSession }) {
             <Button onClick={session.downloadMarkdown} variant="outline">
               <Download /> Download .md
             </Button>
+            {current.hasAudio && (
+              <Button onClick={() => void session.downloadAudio()} variant="outline" disabled={busy}>
+                <Download /> Download audio
+              </Button>
+            )}
             <Button
               onClick={() => session.generateNotes(current)}
               variant="secondary"

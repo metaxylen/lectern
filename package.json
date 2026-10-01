@@ -1,6 +1,6 @@
 {
   "name": "lectern",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "Local-first lecture transcription and study notes: record or upload, get a timestamped transcript, chapters, exam notes and flashcards. Mixed English and Turkish.",
   "license": "MIT",
@@ -42,7 +42,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
-    "eval": "vitest run --config vitest.eval.config.mts"
+    "eval": "vitest run --config vitest.eval.config.mts",
+    "whisper:setup": "node scripts/setup-whisper.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

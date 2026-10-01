@@ -111,6 +111,15 @@ test.describe("saved audio and timestamps", () => {
     await expect(page.getByText(/audio on this device/)).toBeVisible();
   });
 
+  test("downloads stored lecture audio", async ({ page }) => {
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download audio" }).first().click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/operating-systems-101\.wav$/i);
+    const bytes = await (await import("node:fs/promises")).readFile(await file.path());
+    expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+  });
+
   test("exports timestamps in the Markdown download", async ({ page }) => {
     await page.getByRole("button", { name: "Generate notes" }).click();
     await expect(page.getByText("Notes are ready")).toBeVisible();

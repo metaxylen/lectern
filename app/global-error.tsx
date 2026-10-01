@@ -15,7 +15,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body
         style={{
           fontFamily: "system-ui, sans-serif",
@@ -25,6 +25,8 @@ export default function GlobalError({
           justifyContent: "center",
           textAlign: "center",
           padding: "1.5rem",
+          background: "#070F0E",
+          color: "#F0FDFA",
         }}
       >
         <div>

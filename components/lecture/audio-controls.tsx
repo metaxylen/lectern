@@ -15,10 +15,11 @@ export function AudioControls({ session }: { session: LectureSession }) {
   if (player.error) return <p className="text-xs text-destructive">{player.error}</p>;
   if (!player.ready) return null;
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2">
+    <div className="flex items-center gap-3 rounded-lg border border-white/8 bg-white/4 px-3 py-2">
       <Button
-        size="icon-sm"
+        size="icon"
         variant="secondary"
+        className="size-11"
         aria-label={player.playing ? "Pause audio" : "Play audio"}
         onClick={player.toggle}
       >
@@ -27,7 +28,7 @@ export function AudioControls({ session }: { session: LectureSession }) {
       <input
         type="range"
         aria-label="Audio position"
-        className="h-1 flex-1 accent-primary"
+        className="h-2 flex-1 cursor-pointer accent-primary"
         min={0}
         max={Math.max(1, Math.floor(player.duration))}
         value={Math.min(Math.floor(player.currentTime), Math.floor(player.duration))}
