@@ -17,6 +17,7 @@ describe("parseEnv", () => {
       WHISPER_PORT: DEFAULT_WHISPER_PORT,
       STT_MAX_AUDIO_BYTES: 8_000_000,
       STT_RATE_LIMIT_PER_MINUTE: 90,
+      WHISPER_IDLE_SHUTDOWN_MS: 300_000,
     });
   });
 

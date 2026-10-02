@@ -3,6 +3,7 @@ import {
   findSegmentIndex,
   formatTimestamp,
   joinSegments,
+  parseTimestampedText,
   segmentsToTimestampedText,
   sortSegments,
 } from "./segments";
@@ -39,6 +40,23 @@ describe("segmentsToTimestampedText", () => {
     expect(segmentsToTimestampedText(segs)).toBe(
       "[0:00] Hello there.\n[0:20] Merhaba.\n[1:01:40] Later.",
     );
+  });
+});
+
+describe("parseTimestampedText", () => {
+  it("round-trips timestamped export lines", () => {
+    const segments = [
+      { start: 0, end: 5, text: "Hello" },
+      { start: 75, end: 80, text: "World" },
+    ];
+    const text = segmentsToTimestampedText(segments);
+    const parsed = parseTimestampedText(text);
+    expect(parsed?.map((s) => s.text)).toEqual(["Hello", "World"]);
+    expect(joinSegments(parsed!)).toBe("Hello World");
+  });
+
+  it("returns null for plain paragraphs", () => {
+    expect(parseTimestampedText("Just one paragraph.")).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { parseWhisperInference, type WhisperInference } from "./parse";
-import { ensureWhisperServer } from "./server";
+import { ensureWhisperServer, scheduleWhisperIdleShutdown } from "./server";
 
 export async function warmupWhisper(): Promise<{
   ok: true;
@@ -45,5 +45,7 @@ export async function transcribeWavBytes(
         : `whisper-server HTTP ${res.status}`;
     throw new Error(err);
   }
-  return parseWhisperInference(json);
+  const result = parseWhisperInference(json);
+  scheduleWhisperIdleShutdown();
+  return result;
 }

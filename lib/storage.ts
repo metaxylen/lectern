@@ -72,6 +72,16 @@ export function deleteLecture(id: string): boolean {
   return write(read().filter((l) => l.id !== id));
 }
 
+/** Read lectures without subscribing (export / import). */
+export function readLectures(): Lecture[] {
+  return [...read()];
+}
+
+/** Replace the full lecture list (backup import). */
+export function replaceAllLectures(lectures: Lecture[]): boolean {
+  return write([...lectures].sort((a, b) => b.createdAt - a.createdAt));
+}
+
 /** Test helper: forget the in-memory copy so the next read hits localStorage again. */
 export function resetStorageCache() {
   cache = null;

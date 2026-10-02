@@ -30,10 +30,16 @@ import {
 } from "@/lib/languages";
 import { newLecture } from "@/lib/lecture";
 import { downloadLectureAudio } from "@/lib/export/audio";
-import { lectureToMarkdown, slugify } from "@/lib/markdown";
+import { lectureToMarkdown, slugify, transcriptToMarkdown } from "@/lib/markdown";
 import { reportError } from "@/lib/monitoring";
 import { requestNotes } from "@/lib/notes-client";
-import { joinSegments, sortSegments } from "@/lib/segments";
+import {
+  applyBackup,
+  downloadBackupFile,
+  parseBackupFileLoose,
+  type ImportMode,
+} from "@/lib/backup/backup";
+import { joinSegments, parseTimestampedText, sortSegments } from "@/lib/segments";
 import { deleteLecture, saveLecture, useLectures } from "@/lib/storage";
 import { decodeToMono16k } from "@/lib/stt/audio";
 import { shortModelName } from "@/lib/stt/models";
@@ -842,6 +848,76 @@ export function useLectureSession() {
     URL.revokeObjectURL(url);
   }, [current?.title, markdown]);
 
+  const downloadTranscriptMarkdown = useCallback(() => {
+    const lecture = currentRef.current;
+    if (!lecture?.transcript?.trim()) return;
+    const body = transcriptToMarkdown(lecture);
+    const url = URL.createObjectURL(new Blob([body], { type: "text/markdown;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(lecture.title)}-transcript.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const saveTranscript = useCallback(
+    (text: string) => {
+      const lecture = currentRef.current;
+      if (!lecture || recorder.recording || busy) return;
+      const trimmed = text.trim();
+      const parsed = parseTimestampedText(trimmed);
+      const updated: Lecture = {
+        ...lecture,
+        transcript: parsed ? joinSegments(parsed) : trimmed,
+        segments: parsed?.length ? parsed : undefined,
+      };
+      segmentsRef.current = updated.segments ?? [];
+      setLecture(updated);
+      persist(updated);
+      toast.success("Transcript saved");
+    },
+    [busy, recorder.recording, setLecture],
+  );
+
+  const exportBackup = useCallback(async () => {
+    if (recorder.recording || busy) return;
+    const toastId = "export-backup";
+    toast.loading("Building backup…", { id: toastId });
+    try {
+      await downloadBackupFile();
+      toast.success("Backup download started", { id: toastId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not export backup", { id: toastId });
+    }
+  }, [busy, recorder.recording]);
+
+  const importBackup = useCallback(
+    async (file: File, mode: ImportMode) => {
+      if (recorder.recording || busy) return;
+      const toastId = "import-backup";
+      toast.loading("Importing backup…", { id: toastId });
+      try {
+        const raw = await file.text();
+        const parsed = parseBackupFileLoose(JSON.parse(raw));
+        if (!parsed.file) {
+          toast.error(parsed.error ?? "Invalid backup file", { id: toastId });
+          return;
+        }
+        const result = await applyBackup(parsed.file, mode);
+        if (!result.persisted) toast.error(STORAGE_FULL_MESSAGE);
+        toast.success(
+          `Imported ${result.lecturesImported} lecture(s) and ${result.audioSessionsImported} audio session(s)`,
+          { id: toastId },
+        );
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not import backup", {
+          id: toastId,
+        });
+      }
+    },
+    [busy, recorder.recording],
+  );
+
   const downloadAudio = useCallback(async () => {
     const lecture = currentRef.current;
     if (!lecture?.hasAudio) return;
@@ -922,7 +998,11 @@ export function useLectureSession() {
     removeLecture,
     copyMarkdown,
     downloadMarkdown,
+    downloadTranscriptMarkdown,
     downloadAudio,
+    saveTranscript,
+    exportBackup,
+    importBackup,
     cancel,
     cancelNotes,
     retryFailed,

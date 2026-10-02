@@ -66,7 +66,13 @@ export async function buildLectureAudioDownload(
     offset += p.length;
   }
   const wav = encodeWavPcm16(merged, sampleRate || 48_000);
-  return { blob: new Blob([wav], { type: "audio/wav" }), extension: "wav" };
+  return {
+    blob: new Blob(
+      [wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer],
+      { type: "audio/wav" },
+    ),
+    extension: "wav",
+  };
 }
 
 /** Trigger a browser download of the lecture audio kept on this device. */

@@ -55,6 +55,7 @@ export function requireWhisperInstall() {
  * stays in memory between live ticks and 20-second parts.
  */
 export async function ensureWhisperServer(): Promise<string> {
+  cancelWhisperIdleShutdown();
   const url = whisperServerUrl();
   if (await isWhisperServerUp(url)) return url;
   if (getEnv().WHISPER_SERVER_URL) {
@@ -128,6 +129,25 @@ function killSidecar() {
     // already gone
   }
   child = null;
+}
+
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Free RAM when no transcription has run for a while (sidecar we spawned only). */
+export function scheduleWhisperIdleShutdown() {
+  const ms = getEnv().WHISPER_IDLE_SHUTDOWN_MS;
+  if (!ms || getEnv().WHISPER_SERVER_URL) return;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (starting) return;
+    killSidecar();
+  }, ms);
+}
+
+export function cancelWhisperIdleShutdown() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
 }
 
 const g = globalThis as typeof globalThis & { __lecternKillWhisper?: boolean };

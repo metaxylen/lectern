@@ -38,6 +38,8 @@ const EnvSchema = z.object({
   STT_MAX_AUDIO_BYTES: optional(z.coerce.number().int().positive().default(8_000_000)),
   /** Requests per minute per client for /api/transcribe. 0 disables. Live ticks need headroom. */
   STT_RATE_LIMIT_PER_MINUTE: optional(z.coerce.number().int().min(0).default(90)),
+  /** Stop the whisper.cpp sidecar after this many ms idle (0 = never). Only applies when we spawn it. */
+  WHISPER_IDLE_SHUTDOWN_MS: optional(z.coerce.number().int().min(0).default(300_000)),
 });
 
 export type ServerEnv = z.infer<typeof EnvSchema>;

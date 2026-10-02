@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/lecture/app-header";
 import { EngineStrip } from "@/components/lecture/engine-strip";
 import { NotesSection } from "@/components/lecture/notes-section";
 import { RecoveryBanner } from "@/components/lecture/recovery-banner";
+import { BackupPanel } from "@/components/lecture/backup-panel";
 import { StoragePanel } from "@/components/lecture/storage-panel";
 import { TranscriptPanel } from "@/components/lecture/transcript-panel";
 import { useLectureSession } from "@/hooks/use-lecture-session";
@@ -33,6 +34,7 @@ export function LectureApp() {
             onSelect={session.selectLecture}
             onDelete={session.removeLecture}
           />
+          <BackupPanel session={session} />
           <StoragePanel session={session} />
         </aside>
       </div>

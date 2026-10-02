@@ -9,6 +9,7 @@ describe("transcribeWavBytes", () => {
   it("posts the wav to whisper-server and returns parsed text", async () => {
     vi.doMock("./server", () => ({
       ensureWhisperServer: vi.fn(async () => "http://whisper.test"),
+      scheduleWhisperIdleShutdown: vi.fn(),
     }));
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify({ text: " Hello ", language: "en" })),
@@ -28,6 +29,7 @@ describe("transcribeWavBytes", () => {
   it("surfaces HTTP errors from whisper-server", async () => {
     vi.doMock("./server", () => ({
       ensureWhisperServer: vi.fn(async () => "http://whisper.test"),
+      scheduleWhisperIdleShutdown: vi.fn(),
     }));
     vi.stubGlobal(
       "fetch",
@@ -42,6 +44,7 @@ describe("warmupWhisper", () => {
   it("reports metal on darwin after the sidecar is up", async () => {
     vi.doMock("./server", () => ({
       ensureWhisperServer: vi.fn(async () => "http://whisper.test"),
+      scheduleWhisperIdleShutdown: vi.fn(),
     }));
     const { warmupWhisper } = await import("./transcribe");
     await expect(warmupWhisper()).resolves.toEqual({

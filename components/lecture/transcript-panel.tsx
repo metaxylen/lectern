@@ -1,10 +1,11 @@
-import { Download, Loader2, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, Loader2, Pencil, RefreshCw, RotateCcw, Save, Trash2, X } from "lucide-react";
 import { AudioControls, formatBytes } from "@/components/lecture/audio-controls";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LectureSession } from "@/hooks/use-lecture-session";
 import { formatDate } from "@/lib/format";
-import { findSegmentIndex, formatTimestamp } from "@/lib/segments";
+import { findSegmentIndex, formatTimestamp, segmentsToTimestampedText } from "@/lib/segments";
 import { cn } from "@/lib/utils";
 
 export function TranscriptPanel({ session }: { session: LectureSession }) {
@@ -24,6 +25,21 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
   const activeIndex = player.playing ? findSegmentIndex(segments, player.currentTime) : -1;
   const canSeek = player.ready && !!current?.hasAudio;
   const transcribing = (pending > 0 || partsProgress) && !recorder.recording;
+  const canEdit =
+    !!current && !recorder.recording && !busy && !transcribing && (transcript.trim() || segments.length);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    if (!editing) return;
+    const initial =
+      segments.length > 0 ? segmentsToTimestampedText(segments) : transcript;
+    setDraft(initial);
+  }, [editing, segments, transcript]);
+
+  useEffect(() => {
+    if (!canEdit) setEditing(false);
+  }, [canEdit]);
 
   return (
     <Card>
@@ -54,7 +70,34 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
       <CardContent className="flex flex-col gap-3">
         <AudioControls session={session} />
 
-        {segments.length > 0 || transcript || showPreview ? (
+        {editing ? (
+          <div className="flex flex-col gap-2">
+            <textarea
+              className="min-h-48 w-full rounded-lg border border-white/10 bg-background/60 px-3 py-2 text-sm leading-relaxed"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              aria-label="Edit transcript"
+            />
+            <p className="text-xs text-muted-foreground">
+              Keep <code className="text-[11px]">[m:ss] text</code> lines to preserve timestamps, or
+              edit as plain text.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  session.saveTranscript(draft);
+                  setEditing(false);
+                }}
+              >
+                <Save /> Save transcript
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : segments.length > 0 || transcript || showPreview ? (
           <div className="max-h-[min(28rem,55vh)] overflow-y-auto text-sm leading-relaxed">
             {segments.length > 0 ? (
               <ol className="flex flex-col gap-1" aria-label="Transcript segments">
@@ -125,8 +168,24 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
           </p>
         )}
 
-        {current?.hasAudio && !recorder.recording && (
+        {(canEdit || (current?.hasAudio && !recorder.recording)) && (
           <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            {canEdit && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
+                <Pencil /> Edit transcript
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={session.downloadTranscriptMarkdown}
+              >
+                <Download /> Download transcript
+              </Button>
+            )}
+            {current?.hasAudio && !recorder.recording && (
             <Button
               size="sm"
               variant="outline"
@@ -135,15 +194,19 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
             >
               <Download /> Download audio
             </Button>
-            {audioInfo && audioInfo.incomplete > 0 && (
+            )}
+            {current?.hasAudio && !recorder.recording && audioInfo && audioInfo.incomplete > 0 && (
               <Button size="sm" variant="secondary" disabled={busy} onClick={session.retryFailed}>
                 <RotateCcw /> Retry {audioInfo.incomplete} untranscribed part
                 {audioInfo.incomplete > 1 ? "s" : ""}
               </Button>
             )}
+            {current?.hasAudio && !recorder.recording && (
             <Button size="sm" variant="outline" disabled={busy} onClick={session.retranscribe}>
               <RefreshCw /> Re-transcribe with current settings
             </Button>
+            )}
+            {current?.hasAudio && !recorder.recording && (
             <Button
               size="sm"
               variant="ghost"
@@ -153,6 +216,7 @@ export function TranscriptPanel({ session }: { session: LectureSession }) {
             >
               <Trash2 /> Delete audio
             </Button>
+            )}
           </div>
         )}
       </CardContent>

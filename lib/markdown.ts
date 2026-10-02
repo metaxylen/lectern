@@ -141,6 +141,11 @@ export function notesToMarkdown(notes: Notes, language: string, transcript?: str
   return out.join("\n");
 }
 
+export function transcriptToMarkdown(l: Lecture): string {
+  const transcript = l.segments?.length ? segmentsToTimestampedText(l.segments) : l.transcript;
+  return `# ${l.title}\n\n${transcript.trim()}\n`;
+}
+
 export function lectureToMarkdown(l: Lecture): string {
   // Keep timestamps in the export when we have them; otherwise fall back to the plain text.
   const transcript = l.segments?.length ? segmentsToTimestampedText(l.segments) : l.transcript;
