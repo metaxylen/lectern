@@ -9,6 +9,20 @@ describe("splitAudio", () => {
     expect(parts.map((p) => p.length / WHISPER_SAMPLE_RATE)).toEqual([20, 20, 10]);
   });
 
+  it.each([
+    [20.64, [20.64]],
+    [40.64, [20, 20.64]],
+    [44.99, [20, 24.99]],
+    [45, [20, 20, 5]],
+  ])("keeps a short tail with its preceding window for %s seconds", (duration, expected) => {
+    const source = seconds(duration, 0.2);
+    source[source.length - 1] = 0.7;
+    const parts = splitAudio(source, 20);
+    expect(parts.map((p) => p.length / WHISPER_SAMPLE_RATE)).toEqual(expected);
+    expect(parts.reduce((total, p) => total + p.length, 0)).toBe(source.length);
+    expect(parts.at(-1)?.at(-1)).toBe(source.at(-1));
+  });
+
   it("returns one part for short audio and none for empty audio", () => {
     expect(splitAudio(seconds(5), 20)).toHaveLength(1);
     expect(splitAudio(new Float32Array(0), 20)).toHaveLength(0);

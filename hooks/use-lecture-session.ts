@@ -8,13 +8,14 @@ import { startPcmTap, type PcmTap } from "@/lib/audio/pcm-tap";
 import { LiveTranscriber } from "@/lib/stt/live";
 import { useRecorder, type RecordedChunk } from "@/hooks/use-recorder";
 import { useSpeechPreview } from "@/hooks/use-speech-preview";
-import { MODEL_NATIVE, useWhisper } from "@/hooks/use-whisper";
+import { useWhisper } from "@/hooks/use-whisper";
 import {
   createSession,
   deleteSession,
   estimateStorage,
   getChunks,
   getSession,
+  listSessions,
   listUnfinishedSessions,
   patchChunk,
   putChunk,
@@ -23,11 +24,7 @@ import {
   type AudioChunk,
   type AudioSession,
 } from "@/lib/audio-store";
-import {
-  DEFAULT_NOTES_LANGUAGE,
-  DEFAULT_SPEECH_LANGUAGE,
-  parseNotesLanguage,
-} from "@/lib/languages";
+import { parseNotesLanguage } from "@/lib/languages";
 import { newLecture } from "@/lib/lecture";
 import { downloadLectureAudio } from "@/lib/export/audio";
 import { lectureToMarkdown, slugify, transcriptToMarkdown } from "@/lib/markdown";
@@ -40,7 +37,18 @@ import {
   type ImportMode,
 } from "@/lib/backup/backup";
 import { joinSegments, parseTimestampedText, sortSegments } from "@/lib/segments";
-import { deleteLecture, saveLecture, useLectures } from "@/lib/storage";
+import {
+  saveSessionPreference,
+  useSessionPreferences,
+  type SessionPreferences,
+} from "@/lib/session-preferences";
+import {
+  deleteLecture,
+  readLectures,
+  renameProject as renameStoredProject,
+  saveLecture,
+  useLectures,
+} from "@/lib/storage";
 import { decodeToMono16k } from "@/lib/stt/audio";
 import { shortModelName } from "@/lib/stt/models";
 import { CancelledError, transcribeSamples } from "@/lib/stt/pipeline";
@@ -65,6 +73,15 @@ function persist(lecture: Lecture) {
   if (!saveLecture(lecture)) toast.error(STORAGE_FULL_MESSAGE);
 }
 
+function updateSessionPreference<K extends keyof SessionPreferences>(
+  key: K,
+  value: SessionPreferences[K],
+) {
+  if (!saveSessionPreference(key, value)) {
+    toast.error("Could not save session options to this browser (storage is full or blocked).");
+  }
+}
+
 type ChunkInput = Pick<AudioChunk, "index" | "blob" | "mimeType" | "durationSec" | "status"> & {
   segments?: Segment[];
 };
@@ -80,15 +97,13 @@ export function useLectureSession() {
   const lectures = useLectures();
 
   // --- settings -----------------------------------------------------------------------------
-  const [audioLang, setAudioLang] = useState(DEFAULT_SPEECH_LANGUAGE);
-  const [notesLang, setNotesLang] = useState(DEFAULT_NOTES_LANGUAGE);
-  const [engineChoice, setEngineChoice] = useState<NotesEngineChoice>("auto");
-  const [modelChoice, setModelChoice] = useState<string | null>(null);
-  const modelId = modelChoice ?? MODEL_NATIVE;
+  const { audioLang, notesLang, engineChoice, modelId, liveEnabled } = useSessionPreferences();
 
   // --- session state ------------------------------------------------------------------------
   const [engines, setEngines] = useState<EngineStatus | null>(null);
   const [current, setCurrent] = useState<Lecture | null>(null);
+  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [projectHome, setProjectHome] = useState(false);
   const [notesMeta, setNotesMeta] = useState<NotesMeta | null>(null);
   const [pending, setPending] = useState(0);
   const [partsProgress, setPartsProgress] = useState<{ done: number; total: number } | null>(null);
@@ -96,7 +111,6 @@ export function useLectureSession() {
   const [sourceChoice, setSourceChoice] = useState<SourceChoice>("mic");
   const [micDeviceId, setMicDeviceId] = useState("");
   const [inputs, setInputs] = useState<AudioInput[]>([]);
-  const [liveEnabled, setLiveEnabled] = useState(true);
   const [live, setLive] = useState<{ text: string; language?: string }>({ text: "" });
   const [notesProgress, setNotesProgress] = useState<string | null>(null);
   const [context, setContext] = useState("");
@@ -125,6 +139,7 @@ export function useLectureSession() {
   /** Timeline position (seconds) where the next live chunk begins. */
   const liveCursorRef = useRef({ t: 0 });
   const settings = useRef({
+    project: activeProject,
     audioLang,
     notesLang,
     engineChoice,
@@ -137,6 +152,7 @@ export function useLectureSession() {
 
   useEffect(() => {
     settings.current = {
+      project: activeProject,
       audioLang,
       notesLang,
       engineChoice,
@@ -470,7 +486,10 @@ export function useLectureSession() {
         s.audioLang,
         s.notesLang,
         `Whisper ${shortModelName(s.modelId)} (local)`,
-        fileName ? { title: fileName.replace(/\.[^.]+$/, "") } : {},
+        {
+          ...(fileName ? { title: fileName.replace(/\.[^.]+$/, "") } : {}),
+          project: s.project ?? undefined,
+        },
       );
       setLecture(lecture);
 
@@ -485,6 +504,7 @@ export function useLectureSession() {
           audioLanguage: s.audioLang,
           notesLanguage: s.notesLang,
           sttEngine: lecture.sttEngine,
+          project: lecture.project,
         });
         hasSessionRef.current = true;
       });
@@ -755,12 +775,17 @@ export function useLectureSession() {
       setPersistenceOk(true);
       setNotice(null);
       setNotesMeta(null);
+      const storedLecture = readLectures().find((l) => l.id === sessionId);
+      const project = storedLecture ? storedLecture.project : session.project;
+      setActiveProject(project ?? null);
+      setProjectHome(false);
       setLecture(
         newLecture(session.audioLanguage, session.notesLanguage, session.sttEngine, {
           id: session.id,
           createdAt: session.createdAt,
           title: `Recovered: ${session.title}`,
           hasAudio: true,
+          project,
         }),
       );
       setUnfinished((list) => list.filter((s) => s.id !== sessionId));
@@ -782,10 +807,60 @@ export function useLectureSession() {
   // --- history ------------------------------------------------------------------------------
   const busy = pending > 0 || finalizing || generating;
 
+  const openProject = useCallback(
+    (project: string | null, home = true) => {
+      if (recorder.recording || busy) return;
+      setActiveProject(project);
+      setProjectHome(project !== null && home);
+      setLecture(null);
+      setNotesMeta(null);
+      setNotice(null);
+      setContext("");
+      setAudioInfo(null);
+    },
+    [busy, recorder.recording, setLecture],
+  );
+
+  const renameProject = useCallback(
+    (value: string): boolean => {
+      const name = value.trim();
+      if (!activeProject || !name || recorder.recording || busy) return false;
+      if (name === activeProject) return true;
+      if (readLectures().some((l) => l.project === name)) {
+        toast.error("A project with that name already exists.");
+        return false;
+      }
+      if (!renameStoredProject(activeProject, name)) toast.error(STORAGE_FULL_MESSAGE);
+      void write(async () => {
+        for (const session of await listSessions()) {
+          if (session.project === activeProject) await updateSession(session.id, { project: name });
+        }
+      });
+      if (currentRef.current?.project === activeProject) patchCurrent({ project: name });
+      setActiveProject(name);
+      return true;
+    },
+    [activeProject, busy, recorder.recording, patchCurrent, write],
+  );
+
+  const moveLecture = useCallback(
+    (lecture: Lecture, project?: string) => {
+      if (recorder.recording || busy) return;
+      persist({ ...lecture, project });
+      if (currentRef.current?.id === lecture.id) {
+        patchCurrent({ project });
+        setActiveProject(project ?? null);
+      }
+    },
+    [busy, recorder.recording, patchCurrent],
+  );
+
   const selectLecture = useCallback(
     (l: Lecture) => {
       if (recorder.recording || busy) return;
       segmentsRef.current = l.segments ?? [];
+      setActiveProject(l.project ?? null);
+      setProjectHome(false);
       setLecture(l);
       setNotesMeta(l.notesEngine ? { engine: l.notesEngine, fallbackReasons: [] } : null);
       setNotice(null);
@@ -951,6 +1026,10 @@ export function useLectureSession() {
   return {
     // data
     lectures,
+    activeProject,
+    projectHome,
+    openProject,
+    renameProject,
     current,
     notesMeta,
     engines,
@@ -966,16 +1045,16 @@ export function useLectureSession() {
     setMicDeviceId,
     inputs,
     liveEnabled,
-    setLiveEnabled,
+    setLiveEnabled: (value: boolean) => updateSessionPreference("liveEnabled", value),
     live,
     audioLang,
-    setAudioLang,
+    setAudioLang: (value: string) => updateSessionPreference("audioLang", value),
     notesLang,
-    setNotesLang,
+    setNotesLang: (value: string) => updateSessionPreference("notesLang", value),
     engineChoice,
-    setEngineChoice,
+    setEngineChoice: (value: NotesEngineChoice) => updateSessionPreference("engineChoice", value),
     modelId,
-    setModelChoice,
+    setModelChoice: (value: string) => updateSessionPreference("modelId", value),
     // status
     busy,
     generating,
@@ -995,6 +1074,7 @@ export function useLectureSession() {
     uploadFile,
     generateNotes,
     selectLecture,
+    moveLecture,
     removeLecture,
     copyMarkdown,
     downloadMarkdown,

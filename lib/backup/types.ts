@@ -26,6 +26,7 @@ export const BackupAudioSessionSchema = z.object({
   audioLanguage: z.string(),
   notesLanguage: z.string(),
   sttEngine: z.string(),
+  project: LectureSchema.shape.project,
   chunks: z.array(BackupAudioChunkSchema),
 });
 

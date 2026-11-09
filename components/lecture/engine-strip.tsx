@@ -43,6 +43,16 @@ function ollamaChip(engines: EngineStatus | null): Chip {
   };
 }
 
+function openaiChip(engines: EngineStatus | null): Chip {
+  if (!engines) return { label: "OpenAI-compatible: checking…", state: "idle" };
+  return {
+    label: engines.openai.configured
+      ? `OpenAI-compatible: ${engines.openai.model}`
+      : "OpenAI-compatible: not configured",
+    state: engines.openai.configured ? "ok" : "idle",
+  };
+}
+
 export function EngineStrip({
   whisper,
   modelId,
@@ -55,7 +65,7 @@ export function EngineStrip({
   previewSupported: boolean;
 }) {
   const model = modelId.split("/").pop();
-  const geminiOk = !!engines?.gemini.configured;
+  const gemini = engines?.gemini;
   const chips: Chip[] = [
     {
       label: `Whisper ${model}: ${whisperText(whisper)}`,
@@ -68,9 +78,14 @@ export function EngineStrip({
       state: previewSupported ? "ok" : "idle",
     },
     ollamaChip(engines),
+    openaiChip(engines),
     {
-      label: geminiOk ? "Gemini: key set" : "Gemini: no key (optional)",
-      state: geminiOk ? "ok" : "idle",
+      label: gemini?.disabled
+        ? "Gemini: disabled"
+        : gemini?.configured
+          ? "Gemini: key set"
+          : "Gemini: no key",
+      state: gemini?.disabled || !gemini?.configured ? "idle" : "ok",
     },
     { label: "Offline summarizer: always available", state: "ok" },
   ];

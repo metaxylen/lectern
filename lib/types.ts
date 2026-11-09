@@ -22,7 +22,7 @@ export type Notes = {
   examHints?: string[];
 };
 
-export type NotesEngine = "ollama" | "gemini" | "offline";
+export type NotesEngine = "ollama" | "openai" | "gemini" | "offline";
 export type NotesEngineChoice = "auto" | NotesEngine;
 
 export type NotesResult = {
@@ -46,7 +46,8 @@ export type WhisperEngineStatus = {
 
 export type EngineStatus = {
   ollama: { reachable: boolean; host: string; models: string[]; selected: string | null };
-  gemini: { configured: boolean; model: string };
+  openai: { configured: boolean; baseUrl: string; model: string };
+  gemini: { configured: boolean; disabled: boolean; model: string };
   whisper: WhisperEngineStatus;
 };
 
@@ -77,4 +78,6 @@ export type Lecture = {
   hasAudio?: boolean;
   /** Optional course/topic hints the notes were generated with. */
   context?: string;
+  /** Optional project name; older recordings without one remain ungrouped. */
+  project?: string;
 };

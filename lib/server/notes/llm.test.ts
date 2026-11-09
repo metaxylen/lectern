@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetEnvCache } from "../env";
-import { createGeminiClient, createOllamaClient, pickOllamaModel } from "./llm";
+import { createGeminiClient, createOpenAIClient, createOllamaClient, pickOllamaModel } from "./llm";
 
 beforeEach(() => {
   vi.stubEnv("OLLAMA_HOST", "http://ollama.test");
   vi.stubEnv("OLLAMA_MODEL", "");
+  vi.stubEnv("OPENAI_BASE_URL", "https://api.openai.test/v1");
+  vi.stubEnv("OPENAI_API_KEY", "openai-secret");
+  vi.stubEnv("OPENAI_MODEL", "test-model");
+  vi.stubEnv("LECTERN_GEMINI_ENABLED", "true");
   vi.stubEnv("GEMINI_API_KEY", "secret");
   resetEnvCache();
 });
@@ -105,6 +109,50 @@ describe("createOllamaClient", () => {
   });
 });
 
+describe("createOpenAIClient", () => {
+  it("posts JSON prompts to the configured Chat Completions endpoint", async () => {
+    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] })),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = await createOpenAIClient();
+    expect(client).toMatchObject({ engine: "openai", model: "test-model" });
+    expect(await client.generateJson("hi", { schema: { type: "object" } })).toBe('{"ok":true}');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.test/v1/chat/completions");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer openai-secret");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      model: "test-model",
+      messages: [{ role: "user", content: "hi" }],
+      response_format: { type: "json_object" },
+    });
+  });
+
+  it("retries without response_format for compatible servers that reject it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("response_format unsupported", { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = await createOpenAIClient();
+    expect(await client.generateJson("hi", { schema: { type: "object" } })).toBe("{}");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string),
+    ).not.toHaveProperty("response_format");
+  });
+
+  it("requires an API key", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    resetEnvCache();
+    await expect(createOpenAIClient()).rejects.toThrow(/OPENAI_API_KEY/);
+  });
+});
+
 describe("createGeminiClient", () => {
   it("keeps the key in a header, never in the URL", async () => {
     const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) =>
@@ -124,5 +172,11 @@ describe("createGeminiClient", () => {
     vi.stubEnv("GEMINI_API_KEY", "");
     resetEnvCache();
     await expect(createGeminiClient()).rejects.toThrow(/GEMINI_API_KEY/);
+  });
+
+  it("can be disabled while a system key remains available", async () => {
+    vi.stubEnv("LECTERN_GEMINI_ENABLED", "false");
+    resetEnvCache();
+    await expect(createGeminiClient()).rejects.toThrow(/LECTERN_GEMINI_ENABLED/);
   });
 });

@@ -113,8 +113,58 @@ export async function createOllamaClient(): Promise<LlmClient> {
   };
 }
 
+/** Connect to OpenAI or any server that implements the OpenAI Chat Completions contract. */
+export async function createOpenAIClient(): Promise<LlmClient> {
+  const { OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL } = getEnv();
+  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
+  if (!OPENAI_MODEL) throw new Error("OPENAI_MODEL is not set");
+
+  const endpoint = `${OPENAI_BASE_URL}/chat/completions`;
+  return {
+    engine: "openai",
+    model: OPENAI_MODEL,
+    singlePassChars: 120_000,
+    sectionChars: 60_000,
+    async generateJson(prompt, opts) {
+      const body = {
+        model: OPENAI_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 4096,
+        ...(opts?.schema ? { response_format: { type: "json_object" } } : {}),
+      };
+      const request = (payload: typeof body | Omit<typeof body, "response_format">) =>
+        fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          signal: anySignal(AbortSignal.timeout(180_000), opts?.signal),
+          body: JSON.stringify(payload),
+        });
+
+      // Some compatible servers do not implement response_format yet. The prompt still asks for
+      // JSON, so retry once without that optional hint when the server rejects it.
+      let res = await request(body);
+      if (!res.ok && res.status === 400 && opts?.schema) {
+        res = await request({ ...body, response_format: undefined });
+      }
+      if (!res.ok)
+        throw new Error(
+          `OpenAI-compatible error ${res.status}: ${(await res.text()).slice(0, 200)}`,
+        );
+      const data = (await res.json()) as {
+        choices?: { message?: { content?: string | null } }[];
+      };
+      return data.choices?.[0]?.message?.content ?? "";
+    },
+  };
+}
+
 export async function createGeminiClient(): Promise<LlmClient> {
-  const { GEMINI_API_KEY, GEMINI_MODEL } = getEnv();
+  const { GEMINI_API_KEY, GEMINI_MODEL, LECTERN_GEMINI_ENABLED } = getEnv();
+  if (!LECTERN_GEMINI_ENABLED) throw new Error("Gemini is disabled by LECTERN_GEMINI_ENABLED");
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set");
   return {
     engine: "gemini",

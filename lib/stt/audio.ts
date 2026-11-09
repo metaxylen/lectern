@@ -44,10 +44,23 @@ export async function decodeToMono16k(data: Blob | ArrayBuffer): Promise<Float32
   }
 }
 
+/**
+ * Split into target-sized windows, keeping a tail under five seconds with the preceding window.
+ * Recorder timers and encoded durations need not land on the exact boundary; decoding a tiny
+ * remainder on its own strips away its speech context and can produce an extra hallucinated line.
+ */
 export function splitAudio(samples: Float32Array, seconds = CHUNK_SECONDS): Float32Array[] {
   const size = seconds * WHISPER_SAMPLE_RATE;
+  const minTail = Math.min(5 * WHISPER_SAMPLE_RATE, size);
   const parts: Float32Array[] = [];
-  for (let i = 0; i < samples.length; i += size) parts.push(samples.slice(i, i + size));
+  for (let i = 0; i < samples.length; i += size) {
+    const end = i + size;
+    if (samples.length - end < minTail) {
+      parts.push(samples.slice(i));
+      break;
+    }
+    parts.push(samples.slice(i, end));
+  }
   return parts;
 }
 

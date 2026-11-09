@@ -7,6 +7,10 @@ produces a readable error and an HTTP 500 `misconfigured` response instead of un
 | ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `OLLAMA_HOST`                  | `http://127.0.0.1:11434`                                 | Base URL of the Ollama server (trailing slashes are removed)               |
 | `OLLAMA_MODEL`                 | _(auto)_                                                 | Use exactly this model instead of the automatic choice                     |
+| `OPENAI_BASE_URL`              | `https://api.openai.com/v1`                              | Base URL for an OpenAI Chat Completions-compatible server                  |
+| `OPENAI_API_KEY`               | _(unset)_                                                | Enables the OpenAI-compatible engine; sent only as a bearer header         |
+| `OPENAI_MODEL`                 | `gpt-4o-mini`                                            | Model name sent to the OpenAI-compatible server                            |
+| `LECTERN_GEMINI_ENABLED`       | `true`                                                   | Set to `false` to ignore a system-wide `GEMINI_API_KEY`                    |
 | `GEMINI_API_KEY`               | _(unset)_                                                | Enables Gemini. The key is only ever sent in a request header              |
 | `GEMINI_MODEL`                 | `gemini-flash-latest`                                    | Gemini model name                                                          |
 | `NOTES_MAX_TRANSCRIPT_CHARS`   | `500000`                                                 | Largest transcript accepted by `/api/notes` (413 above)                    |
@@ -25,6 +29,22 @@ produces a readable error and an HTTP 500 `misconfigured` response instead of un
 Ollama models are ranked by family, newest first: `gemma4`, `qwen3.8`, `qwen3.6`, `qwen3`, `gemma3`, `qwen2.5`, `llama3`,
 `mistral`, `phi`. Within the first installed family the largest model that fits in 60% of physical memory is used; if none
 fits, the smallest. Embedding models are ignored.
+
+## OpenAI-compatible servers
+
+Set the three `OPENAI_*` variables in `.env.local` to use OpenAI or a compatible service such as
+OpenRouter, LM Studio, or vLLM. `OPENAI_BASE_URL` should end at the API version, usually `/v1`; Lectern
+appends `/chat/completions`. The key stays on the server and is never sent to the browser.
+
+```dotenv
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Automatic engine selection tries Ollama first, then the configured OpenAI-compatible endpoint, then
+Gemini, and finally the offline summarizer. The Session options menu also lets you force the
+OpenAI-compatible engine.
 
 ## Running behind a proxy
 

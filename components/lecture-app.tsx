@@ -5,6 +5,7 @@ import { CaptureCard } from "@/components/lecture/capture-card";
 import { AppHeader } from "@/components/lecture/app-header";
 import { EngineStrip } from "@/components/lecture/engine-strip";
 import { NotesSection } from "@/components/lecture/notes-section";
+import { ProjectWorkspace } from "@/components/lecture/project-workspace";
 import { RecoveryBanner } from "@/components/lecture/recovery-banner";
 import { BackupPanel } from "@/components/lecture/backup-panel";
 import { StoragePanel } from "@/components/lecture/storage-panel";
@@ -31,8 +32,12 @@ export function LectureApp() {
           <HistoryList
             lectures={session.lectures}
             activeId={session.current?.id ?? null}
+            activeProject={session.activeProject}
+            onOpenProject={session.openProject}
             onSelect={session.selectLecture}
             onDelete={session.removeLecture}
+            onMove={session.moveLecture}
+            disabled={session.busy || session.recorder.recording}
           />
           <BackupPanel session={session} />
           <StoragePanel session={session} />
@@ -56,13 +61,20 @@ export function LectureApp() {
           <RecoveryBanner session={session} />
 
           <main className="flex min-w-0 flex-col gap-4 lg:gap-5">
-            <CaptureCard session={session} />
-            <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
-              <TranscriptPanel session={session} />
-              <div className="flex min-w-0 flex-col gap-4">
-                <NotesSection session={session} />
-              </div>
-            </div>
+            {session.activeProject !== null && (
+              <ProjectWorkspace key={session.activeProject} session={session} />
+            )}
+            {!session.projectHome && (
+              <>
+                <CaptureCard session={session} />
+                <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
+                  <TranscriptPanel session={session} />
+                  <div className="flex min-w-0 flex-col gap-4">
+                    <NotesSection session={session} />
+                  </div>
+                </div>
+              </>
+            )}
           </main>
         </div>
       </div>

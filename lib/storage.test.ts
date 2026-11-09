@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY, deleteLecture, resetStorageCache, saveLecture } from "./storage";
+import {
+  STORAGE_KEY,
+  deleteLecture,
+  readLectures,
+  renameProject,
+  resetStorageCache,
+  saveLecture,
+} from "./storage";
 import type { Lecture } from "./types";
 
 const make = (id: string, createdAt: number): Lecture => ({
@@ -23,6 +30,27 @@ beforeEach(() => {
 });
 
 describe("storage", () => {
+  it("renames every recording in a project without changing ids, audio or legacy data", () => {
+    saveLecture({ ...make("a", 1), project: "Systems", hasAudio: true });
+    saveLecture({ ...make("b", 2), project: "Systems" });
+    saveLecture(make("legacy", 0));
+    expect(renameProject("Systems", " Operating Systems ")).toBe(true);
+    resetStorageCache();
+    expect(readLectures()).toEqual([
+      { ...make("b", 2), project: "Operating Systems" },
+      { ...make("a", 1), project: "Operating Systems", hasAudio: true },
+      make("legacy", 0),
+    ]);
+  });
+
+  it("rejects empty or duplicate project names without merging recordings", () => {
+    saveLecture({ ...make("a", 1), project: "Systems" });
+    saveLecture({ ...make("b", 2), project: "Other" });
+    expect(renameProject("Systems", " ")).toBe(false);
+    expect(renameProject("Systems", "Other")).toBe(false);
+    expect(readLectures().find((lecture) => lecture.id === "a")?.project).toBe("Systems");
+  });
+
   it("saves newest first and updates in place", () => {
     saveLecture(make("old", 1));
     saveLecture(make("new", 2));

@@ -16,7 +16,7 @@ test.describe("first visit", () => {
     await page.goto("/");
     const strip = page.getByRole("list", { name: "Engine status" });
     await expect(strip).toContainText("Ollama: not running");
-    await expect(strip).toContainText("Gemini: no key (optional)");
+    await expect(strip).toContainText("Gemini: no key");
   });
 });
 

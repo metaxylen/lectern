@@ -28,7 +28,10 @@ function routeFetch(handlers: Record<string, () => Promise<Response>>) {
   });
 }
 
-function fakeClient(engine: "ollama" | "gemini", reply: () => string): () => Promise<LlmClient> {
+function fakeClient(
+  engine: "ollama" | "openai" | "gemini",
+  reply: () => string,
+): () => Promise<LlmClient> {
   return async () => ({
     engine,
     model: `${engine}-fake`,
@@ -41,6 +44,9 @@ function fakeClient(engine: "ollama" | "gemini", reply: () => string): () => Pro
 beforeEach(() => {
   vi.stubEnv("OLLAMA_HOST", "http://ollama.test");
   vi.stubEnv("OLLAMA_MODEL", "");
+  vi.stubEnv("OPENAI_API_KEY", "");
+  vi.stubEnv("OPENAI_MODEL", "test-model");
+  vi.stubEnv("LECTERN_GEMINI_ENABLED", "true");
   vi.stubEnv("GEMINI_API_KEY", "");
   resetEnvCache();
 });
@@ -75,6 +81,7 @@ describe("generateNotes", () => {
     expect(r.engine).toBe("offline");
     expect(r.fallbackReasons).toEqual([
       "ollama: Ollama not reachable",
+      "openai: OPENAI_API_KEY is not set",
       "gemini: GEMINI_API_KEY is not set",
     ]);
   });
@@ -92,6 +99,19 @@ describe("generateNotes", () => {
     expect(r.model).toBe("gemini-fake");
   });
 
+  it("uses the OpenAI-compatible engine when Ollama is down", async () => {
+    const r = await generateNotes(input, "auto", {
+      clients: {
+        ollama: async () => {
+          throw new Error("down");
+        },
+        openai: fakeClient("openai", () => JSON.stringify(modelNotes)),
+      },
+    });
+    expect(r.engine).toBe("openai");
+    expect(r.model).toBe("openai-fake");
+  });
+
   it("does not silently fall back when an engine is forced", async () => {
     const boom = async () => {
       throw new Error("engine unavailable");
@@ -100,6 +120,9 @@ describe("generateNotes", () => {
       "engine unavailable",
     );
     await expect(generateNotes(input, "gemini", { clients: { gemini: boom } })).rejects.toThrow(
+      "engine unavailable",
+    );
+    await expect(generateNotes(input, "openai", { clients: { openai: boom } })).rejects.toThrow(
       "engine unavailable",
     );
   });
@@ -144,6 +167,7 @@ describe("generateNotes", () => {
 
 describe("getEngineStatus", () => {
   it("reports reachability, the preferred model and gemini config", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "k");
     vi.stubEnv("GEMINI_API_KEY", "k");
     resetEnvCache();
     vi.stubGlobal(
@@ -165,7 +189,16 @@ describe("getEngineStatus", () => {
       host: "http://ollama.test",
       selected: "qwen2.5:14b", // same family, larger model wins
     });
-    expect(s.gemini).toEqual({ configured: true, model: "gemini-flash-latest" });
+    expect(s.openai).toEqual({
+      configured: true,
+      baseUrl: "https://api.openai.com/v1",
+      model: "test-model",
+    });
+    expect(s.gemini).toEqual({
+      configured: true,
+      disabled: false,
+      model: "gemini-flash-latest",
+    });
   });
 
   it("reports an unreachable Ollama without throwing", async () => {

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 const ENGINE_OPTIONS = [
   { value: "auto", label: "Automatic (best available)" },
   { value: "ollama", label: "Ollama (local model)" },
+  { value: "openai", label: "OpenAI-compatible endpoint" },
   { value: "gemini", label: "Gemini (free tier)" },
   { value: "offline", label: "Offline summarizer" },
 ];
@@ -41,11 +42,17 @@ function notesLabel(value: string) {
 /** What "automatic" will actually use right now, so the user is never guessing. */
 function engineSummary(choice: NotesEngineChoice, engines: EngineStatus | null): string {
   if (choice === "offline") return "Offline summarizer";
-  if (choice === "gemini") return "Gemini";
+  if (choice === "gemini") return engines?.gemini.disabled ? "Gemini (disabled)" : "Gemini";
+  if (choice === "openai") {
+    return engines?.openai.configured
+      ? `OpenAI-compatible · ${engines.openai.model}`
+      : "OpenAI-compatible (not configured)";
+  }
   const ollama = engines?.ollama;
   if (choice === "ollama" || choice === "auto") {
     if (ollama?.reachable && ollama.selected) return `Ollama · ${ollama.selected}`;
     if (choice === "ollama") return "Ollama (not running)";
+    if (engines?.openai.configured) return `OpenAI-compatible · ${engines.openai.model}`;
     if (engines?.gemini.configured) return "Gemini";
     return engines ? "Offline summarizer" : "Checking engines…";
   }
@@ -55,11 +62,20 @@ function engineSummary(choice: NotesEngineChoice, engines: EngineStatus | null):
 function engineHint(choice: NotesEngineChoice, engines: EngineStatus | null): string {
   if (!engines) return "Checking which engines are available…";
   if (choice === "auto") {
+    if (engines.ollama.reachable && engines.ollama.selected)
+      return `Will use Ollama with ${engines.ollama.selected}.`;
+    if (engines.openai.configured)
+      return `Will use the OpenAI-compatible endpoint with ${engines.openai.model}.`;
+    if (engines.gemini.configured) return "Will use Gemini.";
     return engines.ollama.reachable
-      ? `Will use Ollama with ${engines.ollama.selected ?? "no model installed"}.`
-      : "Ollama is not running; Gemini or the offline summarizer will be used.";
+      ? "Ollama is running but has no model; the offline summarizer will be used."
+      : "Ollama is not running; another configured engine or the offline summarizer will be used.";
   }
   if (choice === "ollama" && !engines.ollama.reachable) return "Ollama is not running right now.";
+  if (choice === "openai" && !engines.openai.configured)
+    return "Set OPENAI_API_KEY (and optionally OPENAI_BASE_URL and OPENAI_MODEL) on the server.";
+  if (choice === "gemini" && engines.gemini.disabled)
+    return "Gemini is disabled by LECTERN_GEMINI_ENABLED.";
   if (choice === "gemini" && !engines.gemini.configured) return "No GEMINI_API_KEY is configured.";
   return "";
 }

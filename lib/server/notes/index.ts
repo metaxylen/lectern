@@ -4,6 +4,7 @@ import { getEnv } from "../env";
 import { getWhisperStatus } from "../stt/status";
 import {
   createGeminiClient,
+  createOpenAIClient,
   createOllamaClient,
   listOllamaModels,
   pickOllamaModel,
@@ -28,18 +29,29 @@ export async function getEngineStatus(): Promise<EngineStatus> {
       models: (models ?? []).map((m) => m.name),
       selected: models ? pickOllamaModel(models) : null,
     },
-    gemini: { configured: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL },
+    openai: {
+      configured: !!env.OPENAI_API_KEY && !!env.OPENAI_MODEL,
+      baseUrl: env.OPENAI_BASE_URL,
+      model: env.OPENAI_MODEL,
+    },
+    gemini: {
+      configured: env.LECTERN_GEMINI_ENABLED && !!env.GEMINI_API_KEY,
+      disabled: !env.LECTERN_GEMINI_ENABLED,
+      model: env.GEMINI_MODEL,
+    },
     whisper: getWhisperStatus(),
   };
 }
 
 const CLIENTS: Record<Exclude<NotesEngine, "offline">, () => Promise<LlmClient>> = {
   ollama: createOllamaClient,
+  openai: createOpenAIClient,
   gemini: createGeminiClient,
 };
 
 /**
- * Generate notes. With `auto` the engines are tried in order (local Ollama, Gemini, offline) and
+ * Generate notes. With `auto` the engines are tried in order (local Ollama, OpenAI-compatible,
+ * Gemini, offline) and
  * the reasons for skipping any are reported; a forced engine fails loudly instead of degrading.
  */
 export async function generateNotes(
@@ -50,7 +62,8 @@ export async function generateNotes(
     clients?: Partial<Record<Exclude<NotesEngine, "offline">, () => Promise<LlmClient>>>;
   } = {},
 ): Promise<NotesResult> {
-  const order: NotesEngine[] = choice === "auto" ? ["ollama", "gemini", "offline"] : [choice];
+  const order: NotesEngine[] =
+    choice === "auto" ? ["ollama", "openai", "gemini", "offline"] : [choice];
   const fallbackReasons: string[] = [];
   const started = Date.now();
   const factories = { ...CLIENTS, ...opts.clients };
@@ -68,7 +81,8 @@ export async function generateNotes(
           elapsedMs: Date.now() - started,
         };
       }
-      opts.onProgress?.({ message: `Connecting to ${engine === "ollama" ? "Ollama" : "Gemini"}` });
+      const labels = { ollama: "Ollama", openai: "OpenAI-compatible endpoint", gemini: "Gemini" };
+      opts.onProgress?.({ message: `Connecting to ${labels[engine]}` });
       const client = await factories[engine]();
       const result = await runLlmPipeline(client, input, opts);
       return {

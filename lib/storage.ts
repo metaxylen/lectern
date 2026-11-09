@@ -72,6 +72,14 @@ export function deleteLecture(id: string): boolean {
   return write(read().filter((l) => l.id !== id));
 }
 
+/** Rename a project in one write while preserving recording ids and legacy entries. */
+export function renameProject(from: string, to: string): boolean {
+  const name = to.trim();
+  const lectures = read();
+  if (!from || !name || (from !== name && lectures.some((l) => l.project === name))) return false;
+  return write(lectures.map((l) => (l.project === from ? { ...l, project: name } : l)));
+}
+
 /** Read lectures without subscribing (export / import). */
 export function readLectures(): Lecture[] {
   return [...read()];

@@ -29,12 +29,13 @@ beforeEach(async () => {
 
 describe("backup", () => {
   it("round-trips lectures through JSON", async () => {
-    saveLecture(lecture("a"));
+    saveLecture({ ...lecture("a"), project: "Systems" });
     const built = await buildBackupFile();
     expect(built.format).toBe("lectern-backup");
     expect(built.lectures).toHaveLength(1);
     const parsed = parseBackupJson(JSON.stringify(built));
     expect(parsed.lectures[0].id).toBe("a");
+    expect(parsed.lectures[0].project).toBe("Systems");
   });
 
   it("merge import keeps unrelated lectures", async () => {

@@ -36,6 +36,48 @@ describe("transcribeSamples", () => {
     expect(r.silent).toBe(false);
   });
 
+  it("transcribes a recorder overrun with its context instead of inventing a short extra line", async () => {
+    const samples = audible(20.64);
+    const transcribe = vi.fn(async (audio: Float32Array) => ({
+      text: audio.length < WHISPER_SAMPLE_RATE ? "Something." : "The lecture continues.",
+      language: "en",
+    }));
+    const result = await transcribeSamples(samples, {
+      startSec: 2162.4,
+      language: "en",
+      transcribe,
+      partSeconds: 20,
+    });
+
+    expect(result.segments).toEqual([
+      { start: 2162.4, end: 2183.04, text: "The lecture continues.", language: "en" },
+    ]);
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(transcribe.mock.calls[0][0]).toHaveLength(samples.length);
+    expect(result.durationSec).toBe(20.64);
+  });
+
+  it("keeps timestamps and progress aligned when a later window absorbs the tail", async () => {
+    const progress: [number, number][] = [];
+    const result = await transcribeSamples(audible(40.64), {
+      startSec: 100,
+      language: "en",
+      transcribe: async () => ({ text: "Speech." }),
+      partSeconds: 20,
+      onProgress: (done, total) => progress.push([done, total]),
+    });
+
+    expect(result.segments).toEqual([
+      { start: 100, end: 120, text: "Speech.", language: undefined },
+      { start: 120, end: 140.64, text: "Speech.", language: undefined },
+    ]);
+    expect(progress).toEqual([
+      [1, 2],
+      [2, 2],
+    ]);
+    expect(result.durationSec).toBe(40.64);
+  });
+
   it("skips silent parts but keeps the timeline aligned", async () => {
     const transcribe = vi.fn(async () => ({ text: "hi" }));
     const r = await transcribeSamples(join(silent(20), audible(20)), {

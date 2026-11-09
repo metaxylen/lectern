@@ -145,7 +145,12 @@ test.beforeEach(async ({ page }) => {
           models: ["gemma4:12b"],
           selected: "gemma4:12b",
         },
-        gemini: { configured: false, model: "gemini-flash-latest" },
+        openai: {
+          configured: false,
+          baseUrl: "https://api.openai.com/v1",
+          model: "gpt-4o-mini",
+        },
+        gemini: { configured: false, disabled: false, model: "gemini-flash-latest" },
         whisper: {
           available: true,
           ready: true,

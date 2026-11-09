@@ -7,6 +7,10 @@ describe("parseEnv", () => {
     expect(parseEnv({})).toEqual({
       OLLAMA_HOST: "http://127.0.0.1:11434",
       OLLAMA_MODEL: "",
+      OPENAI_BASE_URL: "https://api.openai.com/v1",
+      OPENAI_API_KEY: "",
+      OPENAI_MODEL: "gpt-4o-mini",
+      LECTERN_GEMINI_ENABLED: true,
       GEMINI_API_KEY: "",
       GEMINI_MODEL: "gemini-flash-latest",
       NOTES_MAX_TRANSCRIPT_CHARS: 500_000,
@@ -28,9 +32,24 @@ describe("parseEnv", () => {
     expect(env.NOTES_RATE_LIMIT_PER_MINUTE).toBe(20);
   });
 
+  it("parses the Gemini app toggle without changing the system key", () => {
+    expect(
+      parseEnv({ GEMINI_API_KEY: "system-key", LECTERN_GEMINI_ENABLED: "false" }),
+    ).toMatchObject({
+      GEMINI_API_KEY: "system-key",
+      LECTERN_GEMINI_ENABLED: false,
+    });
+    expect(parseEnv({ LECTERN_GEMINI_ENABLED: "1" }).LECTERN_GEMINI_ENABLED).toBe(true);
+  });
+
   it("strips trailing slashes and trims values", () => {
-    const env = parseEnv({ OLLAMA_HOST: "http://ollama:11434//", GEMINI_API_KEY: " key " });
+    const env = parseEnv({
+      OLLAMA_HOST: "http://ollama:11434//",
+      OPENAI_BASE_URL: "https://llm.example/v1///",
+      GEMINI_API_KEY: " key ",
+    });
     expect(env.OLLAMA_HOST).toBe("http://ollama:11434");
+    expect(env.OPENAI_BASE_URL).toBe("https://llm.example/v1");
     expect(env.GEMINI_API_KEY).toBe("key");
   });
 

@@ -31,6 +31,22 @@ describe("parseLectures", () => {
     expect(parseLectures(null)).toEqual({ lectures: [], dropped: 0 });
   });
 
+  it("keeps project names without dropping legacy or malformed optional project data", () => {
+    const result = parseLectures([
+      valid,
+      { ...valid, id: "grouped", project: " Systems " },
+      { ...valid, id: "null-project", project: null },
+      { ...valid, id: "invalid-project", project: 42 },
+    ]);
+    expect(result.dropped).toBe(0);
+    expect(result.lectures.map((lecture) => lecture.project)).toEqual([
+      undefined,
+      "Systems",
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("validates nested notes", () => {
     const bad = { ...valid, notes: { title: "t" } };
     expect(parseLectures([bad]).lectures).toHaveLength(0);

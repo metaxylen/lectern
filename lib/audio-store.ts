@@ -31,6 +31,7 @@ export type AudioSession = {
   audioLanguage: string;
   notesLanguage: string;
   sttEngine: string;
+  project?: string;
 };
 
 export type ChunkStatus = "pending" | "done" | "failed" | "silent";

@@ -28,7 +28,7 @@ const BodySchema = z.object({
   context: z.string().trim().max(800).optional(),
   language: z.enum(LANGUAGE_CODES).default("en"),
   glossary: z.boolean().default(false),
-  engine: z.enum(["auto", "ollama", "gemini", "offline"]).default("auto"),
+  engine: z.enum(["auto", "ollama", "openai", "gemini", "offline"]).default("auto"),
   /** Respond with newline-delimited JSON progress events followed by the result. */
   stream: z.boolean().default(false),
 });

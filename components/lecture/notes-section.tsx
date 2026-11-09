@@ -9,7 +9,9 @@ import type { NotesEngine } from "@/lib/types";
 
 function engineLabel(engine: NotesEngine, model?: string) {
   if (engine === "offline") return "Offline summarizer";
-  return `${engine === "ollama" ? "Ollama" : "Gemini"}${model ? ` · ${model}` : ""}`;
+  const label =
+    engine === "ollama" ? "Ollama" : engine === "openai" ? "OpenAI-compatible" : "Gemini";
+  return `${label}${model ? ` · ${model}` : ""}`;
 }
 
 export function NotesSection({ session }: { session: LectureSession }) {
@@ -44,7 +46,11 @@ export function NotesSection({ session }: { session: LectureSession }) {
               <Download /> Download .md
             </Button>
             {current.hasAudio && (
-              <Button onClick={() => void session.downloadAudio()} variant="outline" disabled={busy}>
+              <Button
+                onClick={() => void session.downloadAudio()}
+                variant="outline"
+                disabled={busy}
+              >
                 <Download /> Download audio
               </Button>
             )}
@@ -86,7 +92,8 @@ export function NotesSection({ session }: { session: LectureSession }) {
               <Alert>
                 <AlertDescription>
                   The offline summarizer selects sentences from the transcript as spoken, so it
-                  cannot translate or build a Turkish glossary. Use Ollama or Gemini for that.
+                  cannot translate or build a Turkish glossary. Use Ollama, OpenAI-compatible, or
+                  Gemini for that.
                 </AlertDescription>
               </Alert>
             )}

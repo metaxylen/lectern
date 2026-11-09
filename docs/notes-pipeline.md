@@ -30,11 +30,12 @@ the lecturer said**, because a small model will otherwise produce confident, pla
 
 ## Engines
 
-| Engine  | Used when                                            | Single-pass budget                    |
-| ------- | ---------------------------------------------------- | ------------------------------------- |
-| Ollama  | reachable; model chosen by family preference and RAM | 16,000 characters (16k-token context) |
-| Gemini  | `GEMINI_API_KEY` set                                 | 300,000 characters                    |
-| Offline | always                                               | n/a (extractive)                      |
+| Engine            | Used when                                            | Single-pass budget                    |
+| ----------------- | ---------------------------------------------------- | ------------------------------------- |
+| Ollama            | reachable; model chosen by family preference and RAM | 16,000 characters (16k-token context) |
+| OpenAI-compatible | `OPENAI_API_KEY` and `OPENAI_MODEL` set              | 120,000 characters                    |
+| Gemini            | `GEMINI_API_KEY` set                                 | 300,000 characters                    |
+| Offline           | always                                               | n/a (extractive)                      |
 
 `auto` tries them in that order and reports why each earlier one was skipped. A forced engine fails loudly instead of
 degrading silently. Requests stream progress and stop the model when the client disconnects or cancels.
